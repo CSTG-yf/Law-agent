@@ -8,3 +8,24 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Test files and directories
+test/
+tests/
+*_test.py
+test_*.py
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+models/
+
+# Model data and cache
+backend/ollma_models/
+data/ollama/
+*.gguf
+
+# Database data and logs
+backend/neo4j/
+backend/chroma_data/
+backend/postgres_data/
