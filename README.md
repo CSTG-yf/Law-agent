@@ -48,4 +48,5 @@ backend/
 ---------------------------------------------------------------------------------------------------
 命令：
 激活环境：    .venv\Scripts\activate
+启动docker容器：docker-compose up -d
 向量模型下载脚本 docker exec legal-embedding-server bash /scripts/init-model.sh  
