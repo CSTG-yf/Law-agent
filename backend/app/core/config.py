@@ -1,9 +1,14 @@
 # backend/app/core/config.py
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    # 现有配置...
+    model_config = SettingsConfigDict(env_file=".env", extra="allow")
+    
+    # OpenAI/DashScope 配置
+    OPENAI_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    OPENAI_API_KEY: str = ""
+    DASHSCOPE_API_KEY: str = ""
     
     # Neo4j 配置
     NEO4J_URI: str = "bolt://localhost:7687"
@@ -17,8 +22,5 @@ class Settings(BaseSettings):
     # Ollama 配置
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "demonbyron/embeddinggemma-300m-lawvault"
-    
-    class Config:
-        env_file = ".env"
 
 settings = Settings()

@@ -29,3 +29,4 @@ data/ollama/
 backend/neo4j/
 backend/chroma_data/
 backend/postgres_data/
+backend/uploads/

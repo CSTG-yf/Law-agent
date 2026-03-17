@@ -79,11 +79,7 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - ./backend/chroma_data:/chroma/chroma
-    environment:
-      - CHROMA_SERVER_AUTH_CREDENTIALS_FILE=/chroma/auth.txt
-      - CHROMA_SERVER_AUTH_CREDENTIALS=admin:admin_password_2024
-      - CHROMA_SERVER_AUTH_PROVIDER=chromadb.auth.token.TokenAuthServerProvider
+      - ./backend/chroma_data:/data
     networks:
       - legal-network
   # 可选的API网关或监控服务（根据需求添加）

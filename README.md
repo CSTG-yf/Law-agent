@@ -18,15 +18,22 @@ backend/
 │   ├── core/
 │   │   └── config.py        # 使用 Pydantic-settings 管理 .env 环境变量
 │   ├── schema/
-│   │   └── chat.py          # 定义请求体（Message）和响应体的 Pydantic 模型
+│   │   ├── chat.py          # 定义请求体（Message）和响应体的 Pydantic 模型
+│   │   └── rag.py           # RAG相关的请求和响应模型
 │   ├── api/
 │   │   └── v1/
-│   │       └── chat.py      # 具体的聊天接口路由
+│   │       ├── chat.py      # 具体的聊天接口路由
+│   │       └── rag.py        # RAG文档管理接口路由
 │   └── service/             # 业务逻辑服务层
 │       ├── agent/           # LangChain 核心逻辑
 │       │   ├── factory.py   # 根据配置生产不同的 Agent（如 RAG Agent 或 Graph Agent）
 │       │   ├── tools.py     # 法律查询、赔偿计算等自定义工具
 │       │   └── prompts.py   # 管理复杂的法律 Prompt 模板
+│       ├── rag/             # RAG文档处理服务
+│       │   ├── text_embedding.py    # RAG文档处理核心服务
+│       │   ├── file_hasher.py       # 文件MD5去重
+│       │   ├── file_processor.py    # 文件处理（PDF、Word、Excel等）
+│       │   └── ollama_embedding.py  # Ollama文本嵌入服务
 │       └── vector_db.py     # 向量数据库（Chroma/Milvus）的初始化与检索封装
 ├── scripts/
 │   ├── init-model.sh        # 模型初始化脚本
@@ -39,6 +46,7 @@ backend/
 │   ├── logs/               # 日志文件
 │   └── import/             # 数据导入文件
 ├── backend/chroma_data/     # Chroma 向量数据库数据目录（Docker 挂载点）
+├── backend/uploads/         # 上传文件存储目录
 ├── data/                    # 存放法律文档、向量数据库等数据
 ├── docs/                    # 存放 API 文档（如 Swagger/OpenAPI）
 └── tests/                   # 存放单元测试代码
@@ -49,4 +57,13 @@ backend/
 命令：
 激活环境：    .venv\Scripts\activate
 启动docker容器：docker-compose up -d
-向量模型下载脚本 docker exec legal-embedding-server bash /scripts/init-model.sh  
+向量模型下载启动脚本 docker exec legal-embedding-server bash /scripts/init-model.sh
+
+启动后端服务：
+```bash
+cd backend
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+API文档：
+启动服务后访问：http://localhost:8000/docs
