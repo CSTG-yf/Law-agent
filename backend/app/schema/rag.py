@@ -59,3 +59,30 @@ class StatisticsResponse(BaseModel):
     total_documents: int
     total_chunks: int
     vector_db_count: int
+
+
+class TaskSubmitResponse(BaseModel):
+    success: bool
+    message: str
+    code: int = 202
+    task_id: str
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    progress: Optional[int] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
+class TaskResultResponse(BaseModel):
+    success: bool
+    message: str
+    code: int = 200
+    task_id: str
+    file_name: Optional[str] = None
+    file_hash: Optional[str] = None
+    chunks_count: Optional[int] = None
+    document_ids: Optional[List[str]] = None
+    deleted_chunks: Optional[int] = None

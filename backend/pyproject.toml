@@ -29,6 +29,10 @@ dependencies = [
     # 文本处理
     "jieba>=0.42.1",
     "langchain-text-splitters>=0.0.1",
+    
+    # 异步任务处理
+    "celery>=5.3.0",
+    "redis>=5.0.0",
 ]
 
 [[tool.uv.index]]

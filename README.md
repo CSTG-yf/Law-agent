@@ -8,7 +8,7 @@
 agent智能体框架：Langchain  
 项目依赖管理工具：uv  
 
-docker中部署：ollama 向量嵌入模型，neo4j 图数据库，chroma 向量数据库。  
+docker中部署：ollama 向量嵌入模型，neo4j 图数据库，chroma 向量数据库，redis 任务队列。  
 
 ---------------------------------------------------------------------------------------------------
 后端目前架构：
@@ -63,6 +63,16 @@ backend/
 ```bash
 cd backend
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+启动Celery Worker（用于异步任务处理）：
+```bash
+cd backend
+# Windows
+scripts\start-celery.bat
+
+# Linux/Mac
+bash scripts/start-celery.sh
 ```
 
 API文档：

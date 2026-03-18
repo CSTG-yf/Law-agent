@@ -22,5 +22,10 @@ class Settings(BaseSettings):
     # Ollama 配置
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "demonbyron/embeddinggemma-300m-lawvault"
+    
+    # Redis 配置
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
 
 settings = Settings()

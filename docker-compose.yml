@@ -82,6 +82,22 @@ services:
       - ./backend/chroma_data:/data
     networks:
       - legal-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: legal-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./backend/redis_data:/data
+    networks:
+      - legal-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
   # 可选的API网关或监控服务（根据需求添加）
   # app:
   #   build: .

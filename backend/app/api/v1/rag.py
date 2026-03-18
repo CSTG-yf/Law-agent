@@ -2,6 +2,8 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from typing import Optional
 from pathlib import Path
 import shutil
+import json
+import uuid
 from app.service.rag.text_embedding import RAGDocumentService
 from app.schema.rag import (
     UploadResponse,
@@ -12,27 +14,33 @@ from app.schema.rag import (
     DeleteResponse,
     DocumentsListResponse,
     DocumentInfo,
-    StatisticsResponse
+    StatisticsResponse,
+    TaskSubmitResponse,
+    TaskStatusResponse,
+    TaskResultResponse
 )
+from app.tasks.document_tasks import process_document_task, delete_document_task
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
 
 rag_service = RAGDocumentService(upload_dir="uploads")
 
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post("/upload", response_model=TaskSubmitResponse)
 async def upload_document(
     file: UploadFile = File(..., description="上传的文件"),
     metadata: Optional[str] = Form(None, description="额外的元数据（JSON格式）")
 ):
     """
-    上传文档并处理存储到向量数据库
+    上传文档并异步处理存储到向量数据库
     
     支持的文件格式：
     - PDF (.pdf)
     - Word文档 (.docx, .doc)
     - 文本文件 (.txt, .md)
     - Excel文件 (.xlsx, .xls)
+    
+    返回任务ID，可通过 /task/{task_id} 查询处理状态
     """
     try:
         upload_dir = Path("uploads")
@@ -45,60 +53,125 @@ async def upload_document(
         
         extra_metadata = None
         if metadata:
-            import json
             try:
                 extra_metadata = json.loads(metadata)
             except json.JSONDecodeError:
                 pass
         
-        result = rag_service.process_and_store_document(
+        task_id = str(uuid.uuid4())
+        
+        task = process_document_task.delay(
+            task_id=task_id,
             file_path=str(file_path),
             file_name=file.filename,
             metadata=extra_metadata
         )
         
-        if result["success"]:
-            return UploadResponse(
-                success=True,
-                message=result["message"],
-                code=200,
-                file_name=result.get("file_name"),
-                file_hash=result.get("file_hash"),
-                chunks_count=result.get("chunks_count"),
-                document_ids=result.get("document_ids")
-            )
-        else:
-            message = result.get("message", "未知错误")
-            
-            if "文件已存在" in message or "重复文件" in message:
-                return UploadResponse(
-                    success=False,
-                    message=message,
-                    code=409
-                )
-            elif "文件内容为空" in message or "无法提取文本" in message:
-                return UploadResponse(
-                    success=False,
-                    message=message,
-                    code=400
-                )
-            elif "计算文件哈希失败" in message:
-                return UploadResponse(
-                    success=False,
-                    message=message,
-                    code=500
-                )
-            else:
-                return UploadResponse(
-                    success=False,
-                    message=message,
-                    code=500
-                )
+        return TaskSubmitResponse(
+            success=True,
+            message="文档上传成功，正在后台处理",
+            code=202,
+            task_id=task.id
+        )
             
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"上传文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"上传文档失败: {str(e)}")
+
+
+@router.get("/task/{task_id}", response_model=TaskStatusResponse)
+async def get_task_status(task_id: str):
+    """
+    查询任务状态
+    
+    Args:
+        task_id: 任务ID
+        
+    Returns:
+        任务状态信息
+    """
+    try:
+        from app.celery_config import celery_app
+        task_result = celery_app.AsyncResult(task_id)
+        
+        if task_result.state == 'PENDING':
+            return TaskStatusResponse(
+                task_id=task_id,
+                status='pending',
+                message='任务等待中'
+            )
+        elif task_result.state == 'PROGRESS':
+            meta = task_result.info or {}
+            return TaskStatusResponse(
+                task_id=task_id,
+                status='processing',
+                progress=meta.get('progress', 0),
+                message=meta.get('message', '处理中')
+            )
+        elif task_result.state == 'SUCCESS':
+            return TaskStatusResponse(
+                task_id=task_id,
+                status='completed',
+                progress=100,
+                message='处理完成'
+            )
+        elif task_result.state == 'FAILURE':
+            meta = task_result.info or {}
+            return TaskStatusResponse(
+                task_id=task_id,
+                status='failed',
+                error=meta.get('error', '任务失败')
+            )
+        else:
+            return TaskStatusResponse(
+                task_id=task_id,
+                status=task_result.state,
+                message=f'任务状态: {task_result.state}'
+            )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"查询任务状态失败: {str(e)}")
+
+
+@router.get("/task/{task_id}/result", response_model=TaskResultResponse)
+async def get_task_result(task_id: str):
+    """
+    获取任务结果
+    
+    Args:
+        task_id: 任务ID
+        
+    Returns:
+        任务处理结果
+    """
+    try:
+        from app.celery_config import celery_app
+        task_result = celery_app.AsyncResult(task_id)
+        
+        if task_result.state != 'SUCCESS':
+            return TaskResultResponse(
+                success=False,
+                message=f"任务尚未完成，当前状态: {task_result.state}",
+                code=400,
+                task_id=task_id
+            )
+        
+        result = task_result.result
+        
+        return TaskResultResponse(
+            success=result.get('success', False),
+            message=result.get('message', ''),
+            code=200,
+            task_id=task_id,
+            file_name=result.get('file_name'),
+            file_hash=result.get('file_hash'),
+            chunks_count=result.get('chunks_count'),
+            document_ids=result.get('document_ids')
+        )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取任务结果失败: {str(e)}")
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -152,45 +225,33 @@ async def query_documents(request: QueryRequest):
         raise HTTPException(status_code=500, detail=f"查询文档失败: {str(e)}")
 
 
-@router.delete("/document", response_model=DeleteResponse)
+@router.delete("/document", response_model=TaskSubmitResponse)
 async def delete_document(request: DeleteRequest):
     """
-    删除文档
+    删除文档（异步任务）
     
     Args:
         file_hash: 文件哈希值
+        
+    返回任务ID，可通过 /task/{task_id} 查询处理状态
     """
     try:
         if not request.file_hash or not request.file_hash.strip():
             raise HTTPException(status_code=400, detail="文件哈希不能为空")
         
-        result = rag_service.delete_document(request.file_hash)
+        task_id = str(uuid.uuid4())
         
-        if result["success"]:
-            return DeleteResponse(
-                success=True,
-                message=result["message"],
-                code=200,
-                file_hash=result.get("file_hash"),
-                deleted_chunks=result.get("deleted_chunks")
-            )
-        else:
-            message = result.get("message", "删除失败")
-            
-            if "文件不存在" in message:
-                return DeleteResponse(
-                    success=False,
-                    message=message,
-                    code=404,
-                    file_hash=request.file_hash
-                )
-            else:
-                return DeleteResponse(
-                    success=False,
-                    message=message,
-                    code=500,
-                    file_hash=request.file_hash
-                )
+        task = delete_document_task.delay(
+            task_id=task_id,
+            file_hash=request.file_hash
+        )
+        
+        return TaskSubmitResponse(
+            success=True,
+            message="删除任务已提交，正在后台处理",
+            code=202,
+            task_id=task.id
+        )
             
     except HTTPException:
         raise
