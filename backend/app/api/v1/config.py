@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 from app.schema.config import EnvConfigUpdate, EnvConfigResponse, EnvConfigData
+from app.core.constants import HttpStatus, get_message
 
 router = APIRouter(prefix="/config", tags=["Config"])
 
@@ -9,7 +10,7 @@ ENV_FILE_PATH = Path(__file__).parent.parent.parent.parent / ".env"
 
 def read_env_file():
     if not ENV_FILE_PATH.exists():
-        raise HTTPException(status_code=404, detail="Environment file not found")
+        raise HTTPException(status_code=HttpStatus.NOT_FOUND, detail="Environment file not found")
     
     env_config = {}
     with open(ENV_FILE_PATH, 'r', encoding='utf-8') as f:
@@ -33,7 +34,7 @@ async def get_config():
     try:
         config = read_env_file()
         return EnvConfigResponse(
-            code=200,
+            code=HttpStatus.OK,
             status="success",
             message="Configuration retrieved successfully",
             data=EnvConfigData(config=config)
@@ -41,7 +42,7 @@ async def get_config():
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read configuration: {str(e)}")
+        raise HTTPException(status_code=HttpStatus.INTERNAL_SERVER_ERROR, detail=f"Failed to read configuration: {str(e)}")
 
 
 @router.put("/", response_model=EnvConfigResponse)
@@ -57,7 +58,7 @@ async def update_config(config_update: EnvConfigUpdate):
         write_env_file(current_config)
         
         return EnvConfigResponse(
-            code=200,
+            code=HttpStatus.OK,
             status="success",
             message="Configuration updated successfully",
             data=EnvConfigData(config=current_config)
@@ -65,4 +66,4 @@ async def update_config(config_update: EnvConfigUpdate):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update configuration: {str(e)}")
+        raise HTTPException(status_code=HttpStatus.INTERNAL_SERVER_ERROR, detail=f"Failed to update configuration: {str(e)}")
