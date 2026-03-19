@@ -33,3 +33,4 @@ backend/postgres_data/
 backend/uploads/
 backend/redis_data/
 backend/.env
+backend/logs/
