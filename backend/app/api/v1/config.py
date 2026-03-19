@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
-from app.schema.config import EnvConfigUpdate, EnvConfigResponse
+from app.schema.config import EnvConfigUpdate, EnvConfigResponse, EnvConfigData
 
 router = APIRouter(prefix="/config", tags=["Config"])
 
@@ -33,9 +33,10 @@ async def get_config():
     try:
         config = read_env_file()
         return EnvConfigResponse(
+            code=200,
             status="success",
             message="Configuration retrieved successfully",
-            config=config
+            data=EnvConfigData(config=config)
         )
     except HTTPException:
         raise
@@ -56,9 +57,10 @@ async def update_config(config_update: EnvConfigUpdate):
         write_env_file(current_config)
         
         return EnvConfigResponse(
+            code=200,
             status="success",
             message="Configuration updated successfully",
-            config=current_config
+            data=EnvConfigData(config=current_config)
         )
     except HTTPException:
         raise

@@ -9,7 +9,12 @@ class EnvConfigUpdate(BaseModel):
     HF_TOKEN: Optional[str] = Field(None, description="Hugging Face token")
 
 
+class EnvConfigData(BaseModel):
+    config: Optional[Dict[str, Any]] = None
+
+
 class EnvConfigResponse(BaseModel):
+    code: int
     status: str
     message: str
-    config: Optional[Dict[str, Any]] = None
+    data: Optional[EnvConfigData] = None
