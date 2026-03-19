@@ -23,8 +23,10 @@ from app.schema.rag import (
     TaskResultResponse
 )
 from app.tasks.document_tasks import process_document_task, delete_document_task
+from app.core.logger import get_logger
 
 router = APIRouter(prefix="/rag", tags=["RAG"])
+logger = get_logger("rag_api")
 
 rag_service = RAGDocumentService(upload_dir="uploads")
 
@@ -50,6 +52,8 @@ async def upload_document(
     返回任务ID，可通过 /task/{task_id} 查询处理状态
     """
     try:
+        logger.info(f"上传文档 - filename: {file.filename}, metadata: {metadata}")
+        
         upload_dir = Path("uploads")
         upload_dir.mkdir(exist_ok=True)
         
@@ -74,6 +78,7 @@ async def upload_document(
             metadata=extra_metadata
         )
         
+        logger.info(f"文档上传成功 - filename: {file.filename}, task_id: {task.id}")
         return TaskSubmitResponse(
             success=True,
             message="文档上传成功，正在后台处理",
@@ -84,6 +89,7 @@ async def upload_document(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"上传文档失败 - filename: {file.filename}, error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"上传文档失败: {str(e)}")
 
 
@@ -99,10 +105,12 @@ async def get_task_status(task_id: str):
         任务状态信息
     """
     try:
+        logger.info(f"查询任务状态 - task_id: {task_id}")
         from app.celery_config import celery_app
         task_result = celery_app.AsyncResult(task_id)
         
         if task_result.state == 'PENDING':
+            logger.info(f"任务状态: PENDING - task_id: {task_id}")
             return TaskStatusResponse(
                 task_id=task_id,
                 status='pending',
@@ -110,6 +118,7 @@ async def get_task_status(task_id: str):
             )
         elif task_result.state == 'PROGRESS':
             meta = task_result.info or {}
+            logger.info(f"任务状态: PROGRESS - task_id: {task_id}, progress: {meta.get('progress', 0)}")
             return TaskStatusResponse(
                 task_id=task_id,
                 status='processing',
@@ -117,6 +126,7 @@ async def get_task_status(task_id: str):
                 message=meta.get('message', '处理中')
             )
         elif task_result.state == 'SUCCESS':
+            logger.info(f"任务状态: SUCCESS - task_id: {task_id}")
             return TaskStatusResponse(
                 task_id=task_id,
                 status='completed',
@@ -125,12 +135,14 @@ async def get_task_status(task_id: str):
             )
         elif task_result.state == 'FAILURE':
             meta = task_result.info or {}
+            logger.error(f"任务状态: FAILURE - task_id: {task_id}, error: {meta.get('error', '任务失败')}")
             return TaskStatusResponse(
                 task_id=task_id,
                 status='failed',
                 error=meta.get('error', '任务失败')
             )
         else:
+            logger.info(f"任务状态: {task_result.state} - task_id: {task_id}")
             return TaskStatusResponse(
                 task_id=task_id,
                 status=task_result.state,
@@ -138,6 +150,7 @@ async def get_task_status(task_id: str):
             )
             
     except Exception as e:
+        logger.error(f"查询任务状态失败 - task_id: {task_id}, error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"查询任务状态失败: {str(e)}")
 
 
@@ -153,10 +166,12 @@ async def get_task_result(task_id: str):
         任务处理结果
     """
     try:
+        logger.info(f"获取任务结果 - task_id: {task_id}")
         from app.celery_config import celery_app
         task_result = celery_app.AsyncResult(task_id)
         
         if task_result.state != 'SUCCESS':
+            logger.warning(f"任务尚未完成 - task_id: {task_id}, current_state: {task_result.state}")
             return TaskResultResponse(
                 success=False,
                 message=f"任务尚未完成，当前状态: {task_result.state}",
@@ -166,6 +181,7 @@ async def get_task_result(task_id: str):
         
         result = task_result.result
         
+        logger.info(f"获取任务结果成功 - task_id: {task_id}, file_name: {result.get('file_name')}")
         return TaskResultResponse(
             success=result.get('success', False),
             message=result.get('message', ''),
@@ -178,6 +194,7 @@ async def get_task_result(task_id: str):
         )
             
     except Exception as e:
+        logger.error(f"获取任务结果失败 - task_id: {task_id}, error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取任务结果失败: {str(e)}")
 
 
@@ -196,16 +213,21 @@ async def query_documents(request: QueryRequest):
         lambda_mult: MMR多样性因子(0-1)
     """
     try:
+        logger.info(f"查询文档 - query: {request.query[:100]}, n_results: {request.n_results}, strategy: {getattr(request, 'strategy', 'basic')}")
+        
         if not request.query or not request.query.strip():
+            logger.warning("查询文本为空")
             raise HTTPException(status_code=400, detail="查询文本不能为空")
         
         if request.n_results < 1 or request.n_results > 20:
+            logger.warning(f"返回结果数量超出范围 - n_results: {request.n_results}")
             raise HTTPException(status_code=400, detail="返回结果数量必须在1-20之间")
         
         strategy = request.strategy if hasattr(request, 'strategy') else "basic"
         enable_rerank = request.enable_rerank if hasattr(request, 'enable_rerank') else False
         
         if strategy != "basic" and hasattr(request, 'strategy'):
+            logger.info(f"使用高级检索策略 - strategy: {strategy}")
             documents = advanced_rag_service.search(
                 query=request.query,
                 strategy=strategy,
@@ -216,6 +238,7 @@ async def query_documents(request: QueryRequest):
             )
             
             if enable_rerank and hasattr(request, 'enable_rerank') and request.enable_rerank:
+                logger.info("启用重排序")
                 documents = reranker.rerank(
                     query=request.query,
                     documents=documents,
@@ -231,6 +254,7 @@ async def query_documents(request: QueryRequest):
                     id=doc.metadata.get("chunk_index")
                 ))
             
+            logger.info(f"查询成功 - results: {len(query_results)}")
             return QueryResponse(
                 success=True,
                 message="查询成功",
@@ -240,6 +264,7 @@ async def query_documents(request: QueryRequest):
                 total=len(query_results)
             )
         else:
+            logger.info("使用基础检索策略")
             result = rag_service.query_documents(
                 query_text=request.query,
                 n_results=request.n_results,
@@ -248,6 +273,7 @@ async def query_documents(request: QueryRequest):
             
             if result["success"]:
                 if enable_rerank and hasattr(request, 'enable_rerank') and request.enable_rerank:
+                    logger.info("启用重排序")
                     from langchain_core.documents import Document
                     docs = []
                     for r in result["results"]:
@@ -273,6 +299,7 @@ async def query_documents(request: QueryRequest):
                 query_results = [
                     QueryResult(**r) for r in result["results"]
                 ]
+                logger.info(f"查询成功 - results: {len(query_results)}")
                 return QueryResponse(
                     success=True,
                     message="查询成功",
@@ -282,6 +309,7 @@ async def query_documents(request: QueryRequest):
                     total=result["total"]
                 )
             else:
+                logger.error(f"查询失败 - message: {result.get('message', '查询失败')}")
                 return QueryResponse(
                     success=False,
                     message=result.get("message", "查询失败"),
@@ -294,6 +322,7 @@ async def query_documents(request: QueryRequest):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"查询文档失败 - query: {request.query[:100]}, error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"查询文档失败: {str(e)}")
 
 
@@ -308,7 +337,10 @@ async def delete_document(request: DeleteRequest):
     返回任务ID，可通过 /task/{task_id} 查询处理状态
     """
     try:
+        logger.info(f"删除文档 - file_hash: {request.file_hash}")
+        
         if not request.file_hash or not request.file_hash.strip():
+            logger.warning("文件哈希为空")
             raise HTTPException(status_code=400, detail="文件哈希不能为空")
         
         task_id = str(uuid.uuid4())
@@ -318,6 +350,7 @@ async def delete_document(request: DeleteRequest):
             file_hash=request.file_hash
         )
         
+        logger.info(f"删除文档任务已提交 - file_hash: {request.file_hash}, task_id: {task.id}")
         return TaskSubmitResponse(
             success=True,
             message="删除任务已提交，正在后台处理",
@@ -328,6 +361,7 @@ async def delete_document(request: DeleteRequest):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"删除文档失败 - file_hash: {request.file_hash}, error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"删除文档失败: {str(e)}")
 
 
@@ -337,14 +371,17 @@ async def list_documents():
     获取所有文档列表
     """
     try:
+        logger.info("获取文档列表")
         documents = rag_service.get_all_documents()
         document_infos = [DocumentInfo(**doc) for doc in documents]
         
+        logger.info(f"获取文档列表成功 - total: {len(document_infos)}")
         return DocumentsListResponse(
             documents=document_infos,
             total=len(document_infos)
         )
     except Exception as e:
+        logger.error(f"获取文档列表失败 - error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取文档列表失败: {str(e)}")
 
 
@@ -354,9 +391,12 @@ async def get_statistics():
     获取系统统计信息
     """
     try:
+        logger.info("获取系统统计信息")
         stats = rag_service.get_statistics()
+        logger.info(f"获取系统统计信息成功 - documents: {stats.get('total_documents', 0)}, chunks: {stats.get('total_chunks', 0)}")
         return StatisticsResponse(**stats)
     except Exception as e:
+        logger.error(f"获取统计信息失败 - error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")
 
 
@@ -369,14 +409,21 @@ async def get_document_info(file_hash: str):
         file_hash: 文件哈希值
     """
     try:
+        logger.info(f"获取文档信息 - file_hash: {file_hash}")
+        
         if not file_hash or not file_hash.strip():
+            logger.warning("文件哈希为空")
             raise HTTPException(status_code=400, detail="文件哈希不能为空")
         
         doc_info = rag_service.get_document_info(file_hash)
         if doc_info is None:
+            logger.warning(f"文档不存在 - file_hash: {file_hash}")
             raise HTTPException(status_code=404, detail="文档不存在")
+        
+        logger.info(f"获取文档信息成功 - file_hash: {file_hash}")
         return doc_info
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"获取文档信息失败 - file_hash: {file_hash}, error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取文档信息失败: {str(e)}")

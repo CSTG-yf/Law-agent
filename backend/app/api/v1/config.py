@@ -2,8 +2,10 @@ from fastapi import APIRouter, HTTPException
 from pathlib import Path
 from app.schema.config import EnvConfigUpdate, EnvConfigResponse, EnvConfigData
 from app.core.constants import HttpStatus, get_message
+from app.core.logger import get_logger
 
 router = APIRouter(prefix="/config", tags=["Config"])
+logger = get_logger("config_api")
 
 ENV_FILE_PATH = Path(__file__).parent.parent.parent.parent / ".env"
 
@@ -32,7 +34,9 @@ def write_env_file(env_config: dict):
 @router.get("/", response_model=EnvConfigResponse)
 async def get_config():
     try:
+        logger.info("获取配置信息")
         config = read_env_file()
+        logger.info(f"获取配置信息成功 - config_keys: {len(config)}")
         return EnvConfigResponse(
             code=HttpStatus.OK,
             status="success",
@@ -42,12 +46,14 @@ async def get_config():
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"获取配置信息失败 - error: {str(e)}")
         raise HTTPException(status_code=HttpStatus.INTERNAL_SERVER_ERROR, detail=f"Failed to read configuration: {str(e)}")
 
 
 @router.put("/", response_model=EnvConfigResponse)
 async def update_config(config_update: EnvConfigUpdate):
     try:
+        logger.info(f"更新配置 - update_data: {config_update.model_dump(exclude_unset=True)}")
         current_config = read_env_file()
         
         update_data = config_update.model_dump(exclude_unset=True)
@@ -57,6 +63,7 @@ async def update_config(config_update: EnvConfigUpdate):
         
         write_env_file(current_config)
         
+        logger.info(f"更新配置成功 - updated_keys: {list(update_data.keys())}")
         return EnvConfigResponse(
             code=HttpStatus.OK,
             status="success",
@@ -66,4 +73,5 @@ async def update_config(config_update: EnvConfigUpdate):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"更新配置失败 - error: {str(e)}")
         raise HTTPException(status_code=HttpStatus.INTERNAL_SERVER_ERROR, detail=f"Failed to update configuration: {str(e)}")
