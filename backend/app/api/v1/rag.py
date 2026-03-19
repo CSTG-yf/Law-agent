@@ -5,6 +5,9 @@ import shutil
 import json
 import uuid
 from app.service.rag.text_embedding import RAGDocumentService
+from app.service.rag.hybrid_retriever import AdvancedRAGService
+from app.service.rag.reranker import Reranker
+from app.service.vector_db import ChromaVectorStore
 from app.schema.rag import (
     UploadResponse,
     QueryRequest,
@@ -24,6 +27,10 @@ from app.tasks.document_tasks import process_document_task, delete_document_task
 router = APIRouter(prefix="/rag", tags=["RAG"])
 
 rag_service = RAGDocumentService(upload_dir="uploads")
+
+vector_store = ChromaVectorStore(collection_name="legal_documents")
+advanced_rag_service = AdvancedRAGService(vector_store)
+reranker = Reranker()
 
 
 @router.post("/upload", response_model=TaskSubmitResponse)
@@ -183,6 +190,10 @@ async def query_documents(request: QueryRequest):
         query: 查询文本
         n_results: 返回结果数量（默认5，最大20）
         filters: 过滤条件（可选）
+        strategy: 检索策略 (basic/hybrid/mmr/multi_query)
+        enable_rerank: 是否启用重排序
+        fetch_k: MMR初始获取数量
+        lambda_mult: MMR多样性因子(0-1)
     """
     try:
         if not request.query or not request.query.strip():
@@ -191,33 +202,94 @@ async def query_documents(request: QueryRequest):
         if request.n_results < 1 or request.n_results > 20:
             raise HTTPException(status_code=400, detail="返回结果数量必须在1-20之间")
         
-        result = rag_service.query_documents(
-            query_text=request.query,
-            n_results=request.n_results,
-            filters=request.filters
-        )
+        strategy = request.strategy if hasattr(request, 'strategy') else "basic"
+        enable_rerank = request.enable_rerank if hasattr(request, 'enable_rerank') else False
         
-        if result["success"]:
-            query_results = [
-                QueryResult(**r) for r in result["results"]
-            ]
+        if strategy != "basic" and hasattr(request, 'strategy'):
+            documents = advanced_rag_service.search(
+                query=request.query,
+                strategy=strategy,
+                k=request.n_results,
+                filters=request.filters,
+                fetch_k=request.fetch_k if hasattr(request, 'fetch_k') else 20,
+                lambda_mult=request.lambda_mult if hasattr(request, 'lambda_mult') else 0.5
+            )
+            
+            if enable_rerank and hasattr(request, 'enable_rerank') and request.enable_rerank:
+                documents = reranker.rerank(
+                    query=request.query,
+                    documents=documents,
+                    top_k=request.n_results
+                )
+            
+            query_results = []
+            for doc in documents:
+                query_results.append(QueryResult(
+                    document=doc.page_content,
+                    metadata=doc.metadata,
+                    distance=doc.metadata.get("distance"),
+                    id=doc.metadata.get("chunk_index")
+                ))
+            
             return QueryResponse(
                 success=True,
                 message="查询成功",
                 code=200,
-                query=result["query"],
+                query=request.query,
                 results=query_results,
-                total=result["total"]
+                total=len(query_results)
             )
         else:
-            return QueryResponse(
-                success=False,
-                message=result.get("message", "查询失败"),
-                code=500,
-                query=request.query,
-                results=[],
-                total=0
+            result = rag_service.query_documents(
+                query_text=request.query,
+                n_results=request.n_results,
+                filters=request.filters
             )
+            
+            if result["success"]:
+                if enable_rerank and hasattr(request, 'enable_rerank') and request.enable_rerank:
+                    from langchain_core.documents import Document
+                    docs = []
+                    for r in result["results"]:
+                        docs.append(Document(
+                            page_content=r["document"],
+                            metadata=r.get("metadata", {})
+                        ))
+                    docs = reranker.rerank(
+                        query=request.query,
+                        documents=docs,
+                        top_k=request.n_results
+                    )
+                    result["results"] = [
+                        {
+                            "document": doc.page_content,
+                            "metadata": doc.metadata,
+                            "distance": doc.metadata.get("distance"),
+                            "id": doc.metadata.get("chunk_index")
+                        }
+                        for doc in docs
+                    ]
+                
+                query_results = [
+                    QueryResult(**r) for r in result["results"]
+                ]
+                return QueryResponse(
+                    success=True,
+                    message="查询成功",
+                    code=200,
+                    query=result["query"],
+                    results=query_results,
+                    total=result["total"]
+                )
+            else:
+                return QueryResponse(
+                    success=False,
+                    message=result.get("message", "查询失败"),
+                    code=500,
+                    query=request.query,
+                    results=[],
+                    total=0
+                )
             
     except HTTPException:
         raise

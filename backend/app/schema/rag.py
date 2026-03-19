@@ -19,6 +19,10 @@ class QueryRequest(BaseModel):
     query: str = Field(..., description="查询文本")
     n_results: int = Field(5, ge=1, le=20, description="返回结果数量")
     filters: Optional[Dict[str, Any]] = Field(None, description="过滤条件")
+    strategy: str = Field("basic", description="检索策略: basic/hybrid/mmr/multi_query")
+    enable_rerank: bool = Field(False, description="是否启用重排序")
+    fetch_k: int = Field(20, description="MMR初始获取数量")
+    lambda_mult: float = Field(0.5, description="MMR多样性因子(0-1)")
 
 
 class QueryResult(BaseModel):
