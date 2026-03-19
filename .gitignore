@@ -31,3 +31,4 @@ backend/chroma_data/
 backend/postgres_data/
 backend/uploads/
 backend/redis_data/
+backend/.env
