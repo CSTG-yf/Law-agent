@@ -139,7 +139,3 @@ API接口：
   "max_history": 10,
   "stream": false
 }
-```
-
-Apifox接口文档：
-backend/docs/apifox_chat_api.json

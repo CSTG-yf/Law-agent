@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     OPENAI_API_KEY: str = ""
     DASHSCOPE_API_KEY: str = ""
+    MODEL_NAME: str = "qwen-max-latest"
     
     # Neo4j 配置
     NEO4J_URI: str = "bolt://localhost:7687"

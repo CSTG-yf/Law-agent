@@ -7,6 +7,7 @@ class EnvConfigUpdate(BaseModel):
     OPENAI_API_KEY: Optional[str] = Field(None, description="OpenAI API key")
     DASHSCOPE_API_KEY: Optional[str] = Field(None, description="DashScope API key")
     HF_TOKEN: Optional[str] = Field(None, description="Hugging Face token")
+    MODEL_NAME: Optional[str] = Field(None, description="LLM model name")
 
 
 class EnvConfigData(BaseModel):

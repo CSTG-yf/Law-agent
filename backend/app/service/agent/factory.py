@@ -24,7 +24,7 @@ class AgentFactory:
             cls._llm = ChatOpenAI(
                 base_url=settings.OPENAI_BASE_URL,
                 api_key=settings.OPENAI_API_KEY,
-                model="qwen-max-latest",
+                model=settings.MODEL_NAME,
                 temperature=0.7,
                 streaming=True
             )
