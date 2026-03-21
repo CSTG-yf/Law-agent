@@ -77,6 +77,8 @@ class LegalConversationAgent:
         if state.get("context") and len(state["context"]) > 0:
             context_text = ConversationPrompts.get_context_with_sources(state["context"])
             system_prompt = ConversationPrompts.RAG_SYSTEM_PROMPT
+            user_prompt = ConversationPrompts.get_rag_user_prompt(query, context_text)
+            messages = [AIMessage(content=system_prompt)] + state["messages"][:-1] + [HumanMessage(content=user_prompt)]
         else:
             if state.get("use_rag", False):
                 system_prompt = """你是一个专业的法律AI助手。
@@ -89,8 +91,7 @@ class LegalConversationAgent:
 - 如果用户需要，可以建议他们重新表述问题或咨询专业律师"""
             else:
                 system_prompt = ConversationPrompts.SYSTEM_PROMPT
-
-        messages = [AIMessage(content=system_prompt)] + state["messages"]
+            messages = [AIMessage(content=system_prompt)] + state["messages"]
 
         response = await self.llm.ainvoke(messages)
 
