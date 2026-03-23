@@ -9,6 +9,7 @@ class ConversationState(TypedDict):
     context: Annotated[List[Document], "retrieved documents for RAG"]
     use_rag: bool
     retrieval_strategy: Optional[str]
+    enable_rerank: bool
     session_id: str
     user_id: str
     max_history: int

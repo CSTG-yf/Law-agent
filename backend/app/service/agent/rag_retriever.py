@@ -2,30 +2,55 @@ from typing import List, Optional
 from langchain_core.documents import Document
 from app.service.vector_db import ChromaVectorStore
 from app.service.rag.hybrid_retriever import AdvancedRAGService
+from app.service.rag.reranker import Reranker
+from app.core.logger import get_logger
+
+logger = get_logger("rag_retriever")
 
 
 class RAGRetriever:
     def __init__(self, vector_store: ChromaVectorStore):
         self.vector_store = vector_store
         self.rag_service = AdvancedRAGService(vector_store)
+        self.reranker = Reranker()
 
     async def retrieve(
         self,
         query: str,
         strategy: str = "vector",
         top_k: int = 5,
-        score_threshold: float = 0.7
+        score_threshold: float = 0.7,
+        enable_rerank: bool = False
     ) -> List[Document]:
+        logger.info(f"开始RAG检索 - query: {query[:100]}, strategy: {strategy}, top_k: {top_k}, enable_rerank: {enable_rerank}")
+
         if strategy == "vector":
-            return await self._vector_search(query, top_k, score_threshold)
+            documents = await self._vector_search(query, top_k, score_threshold)
         elif strategy == "hybrid":
-            return await self._hybrid_search(query, top_k)
+            documents = await self._hybrid_search(query, top_k)
         elif strategy == "mmr":
-            return await self._mmr_search(query, top_k)
+            documents = await self._mmr_search(query, top_k)
         elif strategy == "multi_query":
-            return await self._multi_query_search(query, top_k)
+            documents = await self._multi_query_search(query, top_k)
         else:
-            return []
+            documents = []
+
+        logger.info(f"检索完成 - 检索到 {len(documents)} 个文档")
+
+        if enable_rerank and documents:
+            logger.info(f"启用重排序 - 对 {len(documents)} 个文档进行重排序")
+            documents = self.reranker.rerank(
+                query=query,
+                documents=documents,
+                top_k=top_k
+            )
+            logger.info(f"重排序完成 - 返回 {len(documents)} 个文档")
+        elif enable_rerank:
+            logger.warning(f"enable_rerank=true 但没有检索到文档，跳过重排序")
+        else:
+            logger.info(f"未启用重排序 - 直接返回检索结果")
+
+        return documents
 
     async def _vector_search(
         self,

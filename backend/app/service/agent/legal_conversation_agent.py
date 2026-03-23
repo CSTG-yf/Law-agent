@@ -92,14 +92,19 @@ class LegalConversationAgent:
         query = last_message.content if isinstance(last_message, HumanMessage) else ""
 
         strategy = state.get("retrieval_strategy", "vector")
+        enable_rerank = state.get("enable_rerank", False)
         top_k = 5
+
+        logger.info(f"开始RAG检索 - query: {query[:100]}, strategy: {strategy}, enable_rerank: {enable_rerank}, top_k: {top_k}")
 
         documents = await self.rag_retriever.retrieve(
             query=query,
             strategy=strategy,
-            top_k=top_k
+            top_k=top_k,
+            enable_rerank=enable_rerank
         )
 
+        logger.info(f"RAG检索完成 - 检索到 {len(documents)} 个文档")
         return {**state, "context": documents}
 
     async def _call_tools_node(self, state: ConversationState) -> ConversationState:

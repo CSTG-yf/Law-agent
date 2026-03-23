@@ -31,6 +31,7 @@ class ChatRequest(BaseModel):
         "vector",
         description="检索策略: vector-向量检索, hybrid-混合检索, mmr-最大边际相关性, multi_query-多查询检索"
     )
+    enable_rerank: bool = Field(False, description="是否启用重排序（提升检索精度）")
     max_history: Optional[int] = Field(10, ge=1, le=50, description="最大历史记录数")
     stream: bool = Field(False, description="是否使用流式输出")
     enable_tools: bool = Field(False, description="是否启用工具调用（案例检索、法律法规检索）")

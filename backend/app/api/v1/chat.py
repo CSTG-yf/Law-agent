@@ -62,10 +62,15 @@ async def send_message(request: ChatRequest):
             "messages": [new_message],
             "use_rag": request.use_rag,
             "retrieval_strategy": request.retrieval_strategy or "vector",
+            "enable_rerank": request.enable_rerank,
             "enable_tools": request.enable_tools,
             "tool_calls": [],
             "tool_results": {}
         }
+
+        logger.info(f"请求参数 - use_rag: {request.use_rag}, retrieval_strategy: {request.retrieval_strategy}, enable_rerank: {request.enable_rerank}, enable_tools: {request.enable_tools}")
+        if not request.use_rag and request.enable_rerank:
+            logger.warning(f"enable_rerank=true 但 use_rag=false，重排序将被忽略")
 
         if request.stream:
             logger.info(f"开始流式响应 - session_id: {session_id}")
