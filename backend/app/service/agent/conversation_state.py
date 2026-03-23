@@ -12,6 +12,9 @@ class ConversationState(TypedDict):
     session_id: str
     user_id: str
     max_history: int
+    enable_tools: bool
+    tool_calls: Annotated[List[dict], "tool call history"]
+    tool_results: Annotated[dict, "tool execution results"]
 
 
 class RAGConfig(TypedDict):

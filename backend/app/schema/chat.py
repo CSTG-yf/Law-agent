@@ -33,6 +33,7 @@ class ChatRequest(BaseModel):
     )
     max_history: Optional[int] = Field(10, ge=1, le=50, description="最大历史记录数")
     stream: bool = Field(False, description="是否使用流式输出")
+    enable_tools: bool = Field(False, description="是否启用工具调用（案例检索、法律法规检索）")
 
 
 class ChatResponse(BaseModel):
@@ -44,6 +45,8 @@ class ChatResponse(BaseModel):
     sources: Optional[List[dict]] = Field(None, description="引用来源（如果使用RAG）")
     rag_used: bool = Field(False, description="是否使用了RAG")
     retrieval_strategy: Optional[str] = Field(None, description="使用的检索策略")
+    tools_used: Optional[List[str]] = Field(None, description="使用的工具列表")
+    tool_results: Optional[dict] = Field(None, description="工具执行结果")
 
 
 class ConversationHistory(BaseModel):
@@ -71,3 +74,15 @@ class ErrorResponse(BaseModel):
     error: str = Field(..., description="错误信息")
     code: int = Field(..., description="错误码")
     detail: Optional[str] = Field(None, description="详细信息")
+
+
+class ToolInfo(BaseModel):
+    name: str = Field(..., description="工具名称")
+    description: str = Field(..., description="工具描述")
+    category: str = Field(..., description="工具分类")
+    enabled: bool = Field(True, description="是否启用")
+
+
+class ToolsListResponse(BaseModel):
+    tools: List[ToolInfo] = Field(..., description="工具列表")
+    total: int = Field(..., description="工具总数")

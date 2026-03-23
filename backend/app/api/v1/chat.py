@@ -9,10 +9,12 @@ from app.schema.chat import (
     ChatResponse,
     ConversationHistory,
     SessionInfo,
-    ErrorResponse
+    ErrorResponse,
+    ToolsListResponse
 )
 from app.service.agent.factory import AgentFactory
 from app.service.agent.sse_streamer import StreamingResponseBuilder
+from app.service.agent.official_tools import get_available_tools
 from app.core.constants import HttpStatus
 from app.core.config import settings
 from app.core.logger import get_logger
@@ -60,6 +62,9 @@ async def send_message(request: ChatRequest):
             "messages": [new_message],
             "use_rag": request.use_rag,
             "retrieval_strategy": request.retrieval_strategy or "vector",
+            "enable_tools": request.enable_tools,
+            "tool_calls": [],
+            "tool_results": {}
         }
 
         if request.stream:
@@ -88,6 +93,14 @@ async def send_message(request: ChatRequest):
                     }
                     sources.append(source_info)
 
+            tools_used = []
+            tool_results = {}
+            if result.get("tool_calls"):
+                for tool_call in result["tool_calls"]:
+                    tools_used.append(tool_call["name"])
+            if result.get("tool_results"):
+                tool_results = result["tool_results"]
+
             session["messages"] = []
             for msg in result["messages"]:
                 if isinstance(msg, HumanMessage):
@@ -111,7 +124,9 @@ async def send_message(request: ChatRequest):
                 timestamp=datetime.now().isoformat(),
                 sources=sources if sources else None,
                 rag_used=request.use_rag,
-                retrieval_strategy=request.retrieval_strategy if request.use_rag else None
+                retrieval_strategy=request.retrieval_strategy if request.use_rag else None,
+                tools_used=tools_used if tools_used else None,
+                tool_results=tool_results if tool_results else None
             )
 
             logger.info(f"聊天消息处理完成 - session_id: {session_id}, response_length: {len(content)}")
@@ -263,4 +278,22 @@ async def clear_session_history(session_id: str):
         "status": "success",
         "message": "Session history cleared",
         "data": None
+    }
+
+
+@router.get("/tools", response_model=dict)
+async def list_tools():
+    logger.info(f"查询工具列表")
+    
+    tools = get_available_tools()
+    
+    logger.info(f"查询工具列表成功 - total: {len(tools)}")
+    return {
+        "code": HttpStatus.OK,
+        "status": "success",
+        "message": "",
+        "data": {
+            "tools": tools,
+            "total": len(tools)
+        }
     }
