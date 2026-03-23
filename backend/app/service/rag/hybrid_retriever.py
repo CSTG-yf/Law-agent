@@ -4,6 +4,9 @@ from langchain_core.documents import Document
 from app.service.vector_db import ChromaVectorStore
 from app.service.rag.ollama_embedding import OllamaEmbedding
 import jieba
+from app.core.logger import get_logger
+
+logger = get_logger("hybrid_retriever")
 
 
 class HybridRetriever:
@@ -35,6 +38,7 @@ class HybridRetriever:
     
     def _init_bm25(self, documents: List[Document]):
         """初始化BM25检索器"""
+        logger.info(f"开始初始化BM25检索器 - 文档数量: {len(documents)}")
         texts = [doc.page_content for doc in documents]
         metadatas = [doc.metadata for doc in documents]
         
@@ -45,6 +49,7 @@ class HybridRetriever:
             ]
         )
         self.bm25_retriever.k = 10
+        logger.info(f"BM25检索器初始化完成 - 返回结果数: {self.bm25_retriever.k}")
     
     def _create_chroma_retriever(self, k: int = 5):
         """创建Chroma向量检索器"""
@@ -81,9 +86,12 @@ class HybridRetriever:
         Returns:
             检索结果列表
         """
+        logger.info(f"开始混合检索 - query: {query[:100]}, k: {k}, filters: {filters}")
+        
         vector_results = []
         bm25_results = []
         
+        logger.info(f"执行向量检索 - 获取 {k * 2} 个结果")
         vector_result = self.vector_store.query(
             query,
             n_results=k * 2,
@@ -99,13 +107,31 @@ class HybridRetriever:
                     metadata={**metadata, "distance": distance, "source": "vector"}
                 )
                 vector_results.append(doc)
+            logger.info(f"向量检索完成 - 检索到 {len(vector_results)} 个文档")
+        else:
+            logger.warning(f"向量检索未找到结果")
         
         if self.bm25_retriever:
-            bm25_results = self.bm25_retriever.get_relevant_documents(query)
-            for doc in bm25_results:
-                doc.metadata["source"] = "bm25"
+            logger.info(f"执行BM25关键词检索 - 查询: {query[:100]}")
+            try:
+                bm25_results = self.bm25_retriever.invoke(query)
+                for doc in bm25_results:
+                    doc.metadata["source"] = "bm25"
+                logger.info(f"BM25关键词检索完成 - 检索到 {len(bm25_results)} 个文档")
+                
+                if len(bm25_results) > 0:
+                    logger.info(f"BM25检索结果示例 - 文档1: {bm25_results[0].page_content[:100]}...")
+            except Exception as e:
+                logger.error(f"BM25关键词检索失败 - error: {str(e)}")
+                bm25_results = []
+        else:
+            logger.warning(f"BM25检索器未初始化，跳过BM25检索")
         
-        return self._fusion_results(vector_results, bm25_results, k)
+        logger.info(f"开始融合结果 - 向量结果: {len(vector_results)}, BM25结果: {len(bm25_results)}")
+        final_results = self._fusion_results(vector_results, bm25_results, k)
+        logger.info(f"混合检索完成 - 返回 {len(final_results)} 个文档")
+        
+        return final_results
     
     def _fusion_results(
         self,
@@ -114,24 +140,35 @@ class HybridRetriever:
         k: int
     ) -> List[Document]:
         """使用倒数排名融合（RRF）合并结果"""
+        logger.info(f"开始RRF融合 - 向量权重: {self.vector_weight}, BM25权重: {self.bm25_weight}")
         doc_scores = {}
         doc_docs = {}
         
+        logger.info(f"处理向量检索结果 - 数量: {len(vector_results)}")
         for rank, doc in enumerate(vector_results):
             doc_id = doc.page_content[:100]
             score = (1.0 / (rank + 60)) * self.vector_weight
             doc_scores[doc_id] = doc_scores.get(doc_id, 0) + score
             doc_docs[doc_id] = doc
+            logger.debug(f"向量结果 - rank: {rank}, doc_id: {doc_id[:50]}..., score: {score:.4f}")
         
+        logger.info(f"处理BM25检索结果 - 数量: {len(bm25_results)}")
         for rank, doc in enumerate(bm25_results):
             doc_id = doc.page_content[:100]
             score = (1.0 / (rank + 60)) * self.bm25_weight
             doc_scores[doc_id] = doc_scores.get(doc_id, 0) + score
             if doc_id not in doc_docs:
                 doc_docs[doc_id] = doc
+            logger.debug(f"BM25结果 - rank: {rank}, doc_id: {doc_id[:50]}..., score: {score:.4f}")
         
         sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
-        return [doc_docs[doc_id] for doc_id, _ in sorted_docs[:k]]
+        final_docs = [doc_docs[doc_id] for doc_id, _ in sorted_docs[:k]]
+        
+        logger.info(f"RRF融合完成 - 合并后文档数: {len(doc_scores)}, 返回前{k}个")
+        for i, (doc_id, score) in enumerate(sorted_docs[:k]):
+            logger.debug(f"最终结果 - rank: {i}, score: {score:.4f}, doc: {doc_id[:50]}...")
+        
+        return final_docs
 
 
 class MMRRetriever:
@@ -313,9 +350,29 @@ class AdvancedRAGService:
     
     def __init__(self, vector_store: ChromaVectorStore, documents: List[Document] = None):
         self.vector_store = vector_store
+        
+        if documents is None:
+            logger.info("未传入documents参数，从向量数据库加载文档")
+            documents = self._load_documents_from_vector_store(vector_store)
+            logger.info(f"从向量数据库加载了 {len(documents)} 个文档用于BM25")
+        else:
+            logger.info(f"使用传入的 {len(documents)} 个文档用于BM25")
+        
         self.hybrid_retriever = HybridRetriever(vector_store, documents)
         self.mmr_retriever = MMRRetriever(vector_store)
         self.multi_query_retriever = MultiQueryRetriever(vector_store)
+    
+    @staticmethod
+    def _load_documents_from_vector_store(vector_store: ChromaVectorStore) -> List[Document]:
+        """从向量数据库加载文档用于BM25"""
+        all_docs = vector_store.get_all_documents()
+        documents = []
+        for doc_data in all_docs:
+            documents.append(Document(
+                page_content=doc_data["document"],
+                metadata=doc_data["metadata"]
+            ))
+        return documents
     
     def search(
         self,
