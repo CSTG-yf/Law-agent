@@ -1,6 +1,6 @@
 import json
 import asyncio
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import AsyncGenerator, Dict, Any, Optional, List
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import BaseMessage, AIMessage
 
@@ -13,8 +13,22 @@ class SSEStreamer:
     async def stream_agent_response(
         graph,
         state: Dict[str, Any],
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        message_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        role: str = "assistant",
+        sources: Optional[List[Dict[str, Any]]] = None
     ) -> AsyncGenerator[str, None]:
+        if message_id:
+            yield SSEStreamer._format_sse(
+                type="metadata",
+                data={
+                    "message_id": message_id,
+                    "session_id": session_id,
+                    "role": role
+                }
+            )
+
         async for event in graph.astream_events(
             state,
             config=config,
@@ -59,6 +73,12 @@ class SSEStreamer:
                                     "message_id": getattr(last_message, "id", "")
                                 }
                             )
+
+        if sources:
+            yield SSEStreamer._format_sse(
+                type="sources",
+                data={"sources": sources}
+            )
 
         yield SSEStreamer._format_sse(
             type="done",
@@ -108,9 +128,21 @@ class StreamingResponseBuilder:
         self,
         graph,
         state: Dict[str, Any],
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        message_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        role: str = "assistant",
+        sources: Optional[List[Dict[str, Any]]] = None
     ) -> StreamingResponse:
-        generator = self.streamer.stream_agent_response(graph, state, config)
+        generator = self.streamer.stream_agent_response(
+            graph,
+            state,
+            config,
+            message_id,
+            session_id,
+            role,
+            sources
+        )
         return SSEStreamer.create_streaming_response(generator)
 
     async def build_simple_stream(

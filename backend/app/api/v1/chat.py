@@ -73,11 +73,30 @@ async def send_message(request: ChatRequest):
             logger.warning(f"enable_rerank=true 但 use_rag=false，重排序将被忽略")
 
         if request.stream:
-            logger.info(f"开始流式响应 - session_id: {session_id}")
+            logger.info(f"开始流式响应 - session_id: {session_id}, use_rag: {request.use_rag}")
+            
+            message_id = str(uuid.uuid4())
+            sources = []
+            
+            if request.use_rag:
+                temp_result = await agent.ainvoke(state_update, config=config)
+                if temp_result.get("context"):
+                    for doc in temp_result["context"]:
+                        source_info = {
+                            "content": doc.page_content[:200],
+                            "metadata": doc.metadata
+                        }
+                        sources.append(source_info)
+                logger.info(f"获取到 {len(sources)} 个引用来源")
+            
             return await streaming_builder.build_conversation_stream(
                 agent.get_compiled_graph(),
                 state_update,
-                config
+                config,
+                message_id=message_id,
+                session_id=session_id,
+                role="assistant",
+                sources=sources if sources else None
             )
         else:
             logger.info(f"开始非流式响应 - session_id: {session_id}, use_rag: {request.use_rag}")
