@@ -4,6 +4,9 @@ from app.service.vector_db import ChromaVectorStore
 from app.service.agent.legal_conversation_agent import LegalConversationAgent
 from app.service.agent.rag_retriever import RAGRetriever
 from app.core.config import settings
+from app.core.logger import get_logger
+
+logger = get_logger("agent_factory")
 
 
 class AgentFactory:
@@ -21,6 +24,7 @@ class AgentFactory:
     @classmethod
     def get_llm(cls) -> ChatOpenAI:
         if cls._llm is None:
+            logger.info(f"初始化LLM - model: {settings.MODEL_NAME}")
             cls._llm = ChatOpenAI(
                 base_url=settings.OPENAI_BASE_URL,
                 api_key=settings.OPENAI_API_KEY,
@@ -33,6 +37,7 @@ class AgentFactory:
     @classmethod
     def get_vector_db(cls) -> ChromaVectorStore:
         if cls._vector_db is None:
+            logger.info("初始化向量数据库")
             cls._vector_db = ChromaVectorStore()
         return cls._vector_db
 
@@ -42,27 +47,36 @@ class AgentFactory:
             try:
                 vector_db = cls.get_vector_db()
                 cls._rag_retriever = RAGRetriever(vector_db)
+                logger.info("RAG检索器初始化成功")
             except Exception as e:
-                print(f"Failed to initialize RAG retriever: {e}")
+                logger.error(f"RAG检索器初始化失败: {e}")
                 return None
         return cls._rag_retriever
 
     @classmethod
     def get_conversation_agent(
         cls,
-        max_history: int = 10
+        max_history: int = 10,
+        enable_parallel: bool = True,
+        use_ner: bool = True
     ) -> LegalConversationAgent:
-        key = f"conversation_{max_history}"
+        key = f"conversation_{max_history}_{enable_parallel}_{use_ner}"
 
         if key not in cls._agents:
             llm = cls.get_llm()
             rag_retriever = cls.get_rag_retriever()
+            vector_db = cls.get_vector_db()
 
             cls._agents[key] = LegalConversationAgent(
                 llm=llm,
                 rag_retriever=rag_retriever,
-                max_history=max_history
+                vector_db=vector_db,
+                max_history=max_history,
+                enable_parallel=enable_parallel,
+                use_ner=use_ner
             )
+
+            logger.info(f"对话Agent初始化成功 - max_history: {max_history}, enable_parallel: {enable_parallel}, use_ner: {use_ner}")
 
         return cls._agents[key]
 
@@ -72,3 +86,4 @@ class AgentFactory:
         cls._llm = None
         cls._vector_db = None
         cls._rag_retriever = None
+        logger.info("Agent工厂已重置")

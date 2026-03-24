@@ -23,6 +23,7 @@ models/
 
 # Model data and cache
 backend/ollma_models/
+backend/huggingface_models/
 data/ollama/
 *.gguf
 

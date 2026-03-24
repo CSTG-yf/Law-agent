@@ -1,8 +1,28 @@
+import os
+import time
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from langchain_core.documents import Document
-from sentence_transformers import CrossEncoder
+from app.core.logger import get_logger
+
+logger = get_logger("reranker")
+
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+try:
+    from sentence_transformers import CrossEncoder
+    CROSS_ENCODER_AVAILABLE = True
+except ImportError:
+    CROSS_ENCODER_AVAILABLE = False
+    logger.warning("sentence-transformers库未安装，Cross-Encoder不可用")
+
 from app.service.rag.ollama_embedding import OllamaEmbedding
 import numpy as np
+
+MODELS_DIR = Path(__file__).parent.parent.parent.parent / "huggingface_models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+RERANKER_MODEL_DIR = MODELS_DIR / "reranker_model"
 
 
 class Reranker:
@@ -17,15 +37,52 @@ class Reranker:
         """
         self.model_name = model_name
         self.model = None
+        self.local_model_path = RERANKER_MODEL_DIR
         self._load_model()
     
     def _load_model(self):
         """加载Cross-Encoder模型"""
+        if not CROSS_ENCODER_AVAILABLE:
+            logger.warning("Cross-Encoder不可用，将使用基于嵌入相似度的后备排序方法")
+            return
+            
         try:
-            self.model = CrossEncoder(self.model_name)
+            start_time = time.time()
+            
+            if self._is_model_cached():
+                logger.info(f"从本地缓存加载Cross-Encoder模型: {self.local_model_path}")
+                self.model = CrossEncoder(str(self.local_model_path))
+            else:
+                logger.info(f"首次运行，从Hugging Face下载Cross-Encoder模型到: {self.local_model_path}")
+                self._download_and_cache_model()
+                self.model = CrossEncoder(str(self.local_model_path))
+            
+            load_time = time.time() - start_time
+            logger.info(f"Cross-Encoder模型加载完成 - time: {load_time:.2f}s")
+            
         except Exception as e:
-            print(f"加载Cross-Encoder模型失败: {e}")
-            print("将使用基于嵌入相似度的后备排序方法")
+            logger.error(f"加载Cross-Encoder模型失败: {e}")
+            logger.warning("将使用基于嵌入相似度的后备排序方法")
+    
+    def _is_model_cached(self) -> bool:
+        config_file = self.local_model_path / "config.json"
+        model_file = self.local_model_path / "pytorch_model.bin"
+        tokenizer_file = self.local_model_path / "tokenizer.json"
+        
+        return config_file.exists() and (model_file.exists() or (self.local_model_path / "model.safetensors").exists()) and tokenizer_file.exists()
+    
+    def _download_and_cache_model(self):
+        try:
+            self.local_model_path.mkdir(parents=True, exist_ok=True)
+            
+            model = CrossEncoder(self.model_name)
+            model.save(str(self.local_model_path))
+            
+            logger.info(f"Cross-Encoder模型已保存到本地: {self.local_model_path}")
+            
+        except Exception as e:
+            logger.error(f"下载Cross-Encoder模型失败: {str(e)}")
+            raise
     
     def rerank(
         self,
@@ -88,7 +145,7 @@ class Reranker:
         try:
             query_embedding = embedding_service.embed_text_sync(query)
         except Exception as e:
-            print(f"生成查询嵌入失败: {e}")
+            logger.error(f"生成查询嵌入失败: {e}")
             return documents[:top_k] if top_k else documents
         
         doc_scores = []
@@ -98,7 +155,7 @@ class Reranker:
                 similarity = self._cosine_similarity(query_embedding, doc_embedding)
                 doc_scores.append((doc, similarity))
             except Exception as e:
-                print(f"生成文档嵌入失败: {e}")
+                logger.error(f"生成文档嵌入失败: {e}")
                 doc_scores.append((doc, 0))
         
         doc_scores.sort(key=lambda x: x[1], reverse=True)
@@ -162,7 +219,7 @@ class MMRReranker:
         try:
             query_embedding = self.embedding_service.embed_text_sync(query)
         except Exception as e:
-            print(f"生成查询嵌入失败: {e}")
+            logger.error(f"生成查询嵌入失败: {e}")
             return documents[:top_k]
         
         doc_embeddings = []
@@ -171,7 +228,7 @@ class MMRReranker:
                 emb = self.embedding_service.embed_text_sync(doc.page_content)
                 doc_embeddings.append(emb)
             except Exception as e:
-                print(f"生成文档嵌入失败: {e}")
+                logger.error(f"生成文档嵌入失败: {e}")
                 doc_embeddings.append([0] * 384)
         
         similarities = []
@@ -278,7 +335,7 @@ class EnsembleReranker:
                     if doc_id in doc_scores:
                         doc_scores[doc_id] += (weight / total_weight) * score
             except Exception as e:
-                print(f"重排序器执行失败: {e}")
+                logger.error(f"重排序器执行失败: {e}")
                 continue
         
         doc_with_scores = []
@@ -345,7 +402,7 @@ class ContextualCompressionReranker:
                 )
                 compressed_docs.append(compressed_doc)
             except Exception as e:
-                print(f"压缩文档失败: {e}")
+                logger.error(f"压缩文档失败: {e}")
                 compressed_docs.append(doc)
         
         return compressed_docs[:top_k]
@@ -363,5 +420,5 @@ class ContextualCompressionReranker:
             response = self.llm.invoke(prompt)
             return response.content if hasattr(response, 'content') else str(response)
         except Exception as e:
-            print(f"LLM压缩失败: {e}")
+            logger.error(f"LLM压缩失败: {e}")
             return content

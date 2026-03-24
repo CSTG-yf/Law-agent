@@ -77,6 +77,7 @@ async def send_message(request: ChatRequest):
             
             message_id = str(uuid.uuid4())
             sources = []
+            retrieval_metadata = None
             
             if request.use_rag:
                 temp_result = await agent.ainvoke(state_update, config=config)
@@ -87,6 +88,7 @@ async def send_message(request: ChatRequest):
                             "metadata": doc.metadata
                         }
                         sources.append(source_info)
+                retrieval_metadata = temp_result.get("retrieval_metadata")
                 logger.info(f"获取到 {len(sources)} 个引用来源")
             
             return await streaming_builder.build_conversation_stream(
@@ -96,7 +98,8 @@ async def send_message(request: ChatRequest):
                 message_id=message_id,
                 session_id=session_id,
                 role="assistant",
-                sources=sources if sources else None
+                sources=sources if sources else None,
+                retrieval_metadata=retrieval_metadata
             )
         else:
             logger.info(f"开始非流式响应 - session_id: {session_id}, use_rag: {request.use_rag}")
@@ -125,6 +128,25 @@ async def send_message(request: ChatRequest):
             if result.get("tool_results"):
                 tool_results = result["tool_results"]
 
+            retrieval_metadata = result.get("retrieval_metadata")
+            intent = None
+            rewritten_query = None
+            original_query = None
+            entities = None
+            pre_retrieval_used = False
+            parallel_execution = False
+            total_time = 0.0
+            if retrieval_metadata:
+                intent = retrieval_metadata.get("intent")
+                rewritten_query = retrieval_metadata.get("rewritten_query")
+                original_query = retrieval_metadata.get("original_query")
+                entities = retrieval_metadata.get("entities")
+                pre_retrieval_used = retrieval_metadata.get("pre_retrieval_used", False)
+                parallel_execution = retrieval_metadata.get("parallel_execution", False)
+                total_time = retrieval_metadata.get("total_time", 0.0)
+                if retrieval_metadata.get("retrieval_skipped"):
+                    logger.info(f"检索被跳过 - reason: {retrieval_metadata.get('skip_reason')}")
+
             session["messages"] = []
             for msg in result["messages"]:
                 if isinstance(msg, HumanMessage):
@@ -150,7 +172,14 @@ async def send_message(request: ChatRequest):
                 rag_used=request.use_rag,
                 retrieval_strategy=request.retrieval_strategy if request.use_rag else None,
                 tools_used=tools_used if tools_used else None,
-                tool_results=tool_results if tool_results else None
+                tool_results=tool_results if tool_results else None,
+                intent=intent,
+                rewritten_query=rewritten_query,
+                original_query=original_query,
+                entities=entities,
+                pre_retrieval_used=pre_retrieval_used,
+                parallel_execution=parallel_execution,
+                total_time=total_time
             )
 
             logger.info(f"聊天消息处理完成 - session_id: {session_id}, response_length: {len(content)}")

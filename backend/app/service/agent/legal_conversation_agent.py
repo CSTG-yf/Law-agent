@@ -6,6 +6,8 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from app.service.agent.conversation_state import ConversationState
 from app.service.agent.rag_retriever import RAGRetriever
+from app.service.agent.retrieval_pipeline import SmartRetrievalPipeline
+from app.service.vector_db import ChromaVectorStore
 from app.service.agent.official_tools import (
     search_cases, 
     search_laws, 
@@ -26,14 +28,34 @@ class LegalConversationAgent:
         self,
         llm: ChatOpenAI,
         rag_retriever: Optional[RAGRetriever] = None,
-        max_history: int = 10
+        vector_db: Optional[ChromaVectorStore] = None,
+        max_history: int = 10,
+        enable_parallel: bool = True,
+        use_ner: bool = True
     ):
         self.llm = llm
         self.rag_retriever = rag_retriever
+        self.vector_db = vector_db
         self.max_history = max_history
         self.checkpointer = MemorySaver()
         self.tools = [search_cases, search_laws]
         self.llm_with_tools = llm.bind_tools(self.tools)
+        self.enable_parallel = enable_parallel
+        self.use_ner = use_ner
+        
+        if rag_retriever:
+            self.retrieval_pipeline = SmartRetrievalPipeline(
+                llm=llm,
+                rag_retriever=rag_retriever,
+                vector_store=vector_db,
+                enable_parallel=enable_parallel,
+                use_ner=use_ner
+            )
+            logger.info(f"智能检索管道初始化成功 - enable_parallel: {enable_parallel}, use_ner: {use_ner}")
+        else:
+            self.retrieval_pipeline = None
+            logger.warning("RAG检索器未初始化，智能检索管道不可用")
+        
         self.graph = self._build_graph()
 
     def _build_graph(self) -> StateGraph:
@@ -86,26 +108,83 @@ class LegalConversationAgent:
 
     async def _retrieve_node(self, state: ConversationState) -> ConversationState:
         if not self.rag_retriever:
-            return {**state, "context": []}
+            return {**state, "context": [], "retrieval_metadata": None}
 
         last_message = state["messages"][-1]
         query = last_message.content if isinstance(last_message, HumanMessage) else ""
 
         strategy = state.get("retrieval_strategy", "vector")
         enable_rerank = state.get("enable_rerank", False)
+        use_rag = state.get("use_rag", False)
         top_k = 5
 
-        logger.info(f"开始RAG检索 - query: {query[:100]}, strategy: {strategy}, enable_rerank: {enable_rerank}, top_k: {top_k}")
+        conversation_history = state["messages"][:-1]
 
-        documents = await self.rag_retriever.retrieve(
-            query=query,
-            strategy=strategy,
-            top_k=top_k,
-            enable_rerank=enable_rerank
-        )
+        if self.retrieval_pipeline:
+            logger.info(f"使用智能检索管道 - query: {query[:100]}")
+            
+            documents, metadata = await self.retrieval_pipeline.process(
+                query=query,
+                conversation_history=conversation_history,
+                use_rag=use_rag,
+                retrieval_strategy=strategy,
+                enable_rerank=enable_rerank,
+                top_k=top_k
+            )
+            
+            metadata_dict = {
+                "original_query": metadata.original_query,
+                "rewritten_query": metadata.rewritten_query,
+                "intent": metadata.intent,
+                "intent_confidence": metadata.intent_confidence,
+                "rewrite_type": metadata.rewrite_type,
+                "retrieval_skipped": metadata.retrieval_skipped,
+                "skip_reason": metadata.skip_reason,
+                "documents_count": metadata.documents_count,
+                "retrieval_strategy": metadata.retrieval_strategy,
+                "entities": metadata.entities,
+                "pre_retrieval_used": metadata.pre_retrieval_used,
+                "parallel_execution": metadata.parallel_execution,
+                "total_time": metadata.total_time
+            }
+            
+            logger.info(f"智能检索完成 - intent: {metadata.intent}, rewrite_type: {metadata.rewrite_type}, documents: {len(documents)}, parallel: {metadata.parallel_execution}, pre_retrieval_used: {metadata.pre_retrieval_used}")
+            
+            return {
+                **state,
+                "context": documents,
+                "retrieval_metadata": metadata_dict
+            }
+        else:
+            logger.info(f"使用传统检索 - query: {query[:100]}, strategy: {strategy}, enable_rerank: {enable_rerank}, top_k: {top_k}")
 
-        logger.info(f"RAG检索完成 - 检索到 {len(documents)} 个文档")
-        return {**state, "context": documents}
+            documents = await self.rag_retriever.retrieve(
+                query=query,
+                strategy=strategy,
+                top_k=top_k,
+                enable_rerank=enable_rerank
+            )
+
+            logger.info(f"传统检索完成 - 检索到 {len(documents)} 个文档")
+            return {
+                **state,
+                "context": documents,
+                "retrieval_metadata": {
+                    "original_query": query,
+                    "rewritten_query": query,
+                    "intent": "new_question",
+                    "intent_confidence": 1.0,
+                    "rewrite_type": "无需改写",
+                    "retrieval_skipped": False,
+                    "skip_reason": None,
+                    "documents_count": len(documents),
+                    "retrieval_strategy": strategy,
+                    "entities": None,
+                    "pre_retrieval_used": False,
+                    "parallel_execution": False,
+                    "total_time": 0.0
+                }
+            }
 
     async def _call_tools_node(self, state: ConversationState) -> ConversationState:
         last_message = state["messages"][-1]

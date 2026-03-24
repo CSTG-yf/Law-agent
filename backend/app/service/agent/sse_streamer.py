@@ -17,7 +17,8 @@ class SSEStreamer:
         message_id: Optional[str] = None,
         session_id: Optional[str] = None,
         role: str = "assistant",
-        sources: Optional[List[Dict[str, Any]]] = None
+        sources: Optional[List[Dict[str, Any]]] = None,
+        retrieval_metadata: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[str, None]:
         if message_id:
             yield SSEStreamer._format_sse(
@@ -80,6 +81,18 @@ class SSEStreamer:
                 data={"sources": sources}
             )
 
+        if retrieval_metadata:
+            yield SSEStreamer._format_sse(
+                type="intent",
+                data={
+                    "intent": retrieval_metadata.get("intent"),
+                    "rewritten_query": retrieval_metadata.get("rewritten_query"),
+                    "original_query": retrieval_metadata.get("original_query"),
+                    "rewrite_type": retrieval_metadata.get("rewrite_type"),
+                    "intent_confidence": retrieval_metadata.get("intent_confidence")
+                }
+            )
+
         yield SSEStreamer._format_sse(
             type="done",
             data={}
@@ -132,7 +145,8 @@ class StreamingResponseBuilder:
         message_id: Optional[str] = None,
         session_id: Optional[str] = None,
         role: str = "assistant",
-        sources: Optional[List[Dict[str, Any]]] = None
+        sources: Optional[List[Dict[str, Any]]] = None,
+        retrieval_metadata: Optional[Dict[str, Any]] = None
     ) -> StreamingResponse:
         generator = self.streamer.stream_agent_response(
             graph,
@@ -141,7 +155,8 @@ class StreamingResponseBuilder:
             message_id,
             session_id,
             role,
-            sources
+            sources,
+            retrieval_metadata
         )
         return SSEStreamer.create_streaming_response(generator)
 

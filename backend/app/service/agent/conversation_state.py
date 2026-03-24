@@ -4,6 +4,18 @@ from langchain_core.documents import Document
 from langgraph.graph import add_messages
 
 
+class RetrievalMetadata(TypedDict, total=False):
+    original_query: str
+    rewritten_query: str
+    intent: str
+    intent_confidence: float
+    rewrite_type: str
+    retrieval_skipped: bool
+    skip_reason: Optional[str]
+    documents_count: int
+    retrieval_strategy: Optional[str]
+
+
 class ConversationState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     context: Annotated[List[Document], "retrieved documents for RAG"]
@@ -16,6 +28,7 @@ class ConversationState(TypedDict):
     enable_tools: bool
     tool_calls: Annotated[List[dict], "tool call history"]
     tool_results: Annotated[dict, "tool execution results"]
+    retrieval_metadata: Annotated[Optional[RetrievalMetadata], "retrieval process metadata"]
 
 
 class RAGConfig(TypedDict):

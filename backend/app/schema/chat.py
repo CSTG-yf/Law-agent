@@ -48,6 +48,13 @@ class ChatResponse(BaseModel):
     retrieval_strategy: Optional[str] = Field(None, description="使用的检索策略")
     tools_used: Optional[List[str]] = Field(None, description="使用的工具列表")
     tool_results: Optional[dict] = Field(None, description="工具执行结果")
+    intent: Optional[str] = Field(None, description="识别的意图类型")
+    rewritten_query: Optional[str] = Field(None, description="改写后的查询")
+    original_query: Optional[str] = Field(None, description="原始查询")
+    entities: Optional[dict] = Field(None, description="识别的实体")
+    pre_retrieval_used: bool = Field(False, description="是否使用了预检索结果")
+    parallel_execution: bool = Field(False, description="是否使用了并行执行")
+    total_time: float = Field(0.0, description="总处理时间(秒)")
 
 
 class ConversationHistory(BaseModel):
