@@ -4,6 +4,8 @@ from pathlib import Path
 import shutil
 import json
 import uuid
+import zipfile
+import os
 from app.service.rag.text_embedding import RAGDocumentService
 from app.service.rag.hybrid_retriever import AdvancedRAGService
 from app.service.rag.reranker import Reranker
@@ -20,7 +22,9 @@ from app.schema.rag import (
     StatisticsResponse,
     TaskSubmitResponse,
     TaskStatusResponse,
-    TaskResultResponse
+    TaskResultResponse,
+    BatchUploadTaskInfo,
+    BatchUploadResponse
 )
 from app.tasks.document_tasks import process_document_task, delete_document_task
 from app.core.logger import get_logger
@@ -91,6 +95,130 @@ async def upload_document(
     except Exception as e:
         logger.error(f"上传文档失败 - filename: {file.filename}, error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"上传文档失败: {str(e)}")
+
+
+@router.post("/upload/batch", response_model=BatchUploadResponse)
+async def upload_batch_documents(
+    file: UploadFile = File(..., description="上传的ZIP压缩包"),
+    metadata: Optional[str] = Form(None, description="额外的元数据（JSON格式）")
+):
+    """
+    批量上传文档（ZIP压缩包）
+    
+    支持的文件格式：
+    - PDF (.pdf)
+    - Word文档 (.docx, .doc)
+    - 文本文件 (.txt, .md)
+    - Excel文件 (.xlsx, .xls)
+    
+    上传ZIP压缩包，系统会自动解压并批量处理其中的文档
+    返回批量任务ID和每个文件的任务ID列表
+    """
+    try:
+        logger.info(f"批量上传文档 - filename: {file.filename}, metadata: {metadata}")
+        
+        if not file.filename.lower().endswith('.zip'):
+            logger.error(f"文件格式错误 - 只支持ZIP文件: {file.filename}")
+            raise HTTPException(status_code=400, detail="只支持ZIP压缩包格式")
+        
+        upload_dir = Path("uploads")
+        upload_dir.mkdir(exist_ok=True)
+        
+        zip_path = upload_dir / file.filename
+        
+        with open(zip_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        logger.info(f"ZIP文件已保存 - path: {zip_path}")
+        
+        extra_metadata = None
+        if metadata:
+            try:
+                extra_metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                logger.warning(f"元数据格式错误，忽略: {metadata}")
+        
+        extract_dir = upload_dir / f"extract_{file.filename[:-4]}"
+        extract_dir.mkdir(exist_ok=True)
+        
+        logger.info(f"开始解压ZIP文件 - extract_dir: {extract_dir}")
+        
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            logger.info(f"ZIP文件解压成功")
+        except zipfile.BadZipFile:
+            logger.error(f"ZIP文件损坏: {file.filename}")
+            raise HTTPException(status_code=400, detail="ZIP文件损坏，无法解压")
+        
+        supported_extensions = {'.pdf', '.docx', '.doc', '.txt', '.md', '.xlsx', '.xls'}
+        extracted_files = []
+        
+        for root, dirs, files in os.walk(extract_dir):
+            for filename in files:
+                file_path = Path(root) / filename
+                if file_path.suffix.lower() in supported_extensions:
+                    extracted_files.append(file_path)
+                else:
+                    logger.info(f"跳过不支持的文件格式: {filename}")
+        
+        logger.info(f"找到 {len(extracted_files)} 个支持的文件")
+        
+        if not extracted_files:
+            logger.warning(f"ZIP文件中没有找到支持的文档格式")
+            os.remove(zip_path)
+            shutil.rmtree(extract_dir)
+            raise HTTPException(status_code=400, detail="ZIP文件中没有找到支持的文档格式")
+        
+        batch_id = str(uuid.uuid4())
+        tasks = []
+        
+        for file_path in extracted_files:
+            try:
+                file_name = file_path.name
+                task_id = str(uuid.uuid4())
+                
+                logger.info(f"创建处理任务 - file: {file_name}, task_id: {task_id}")
+                
+                task = process_document_task.delay(
+                    task_id=task_id,
+                    file_path=str(file_path),
+                    file_name=file_name,
+                    metadata=extra_metadata
+                )
+                
+                tasks.append(BatchUploadTaskInfo(
+                    file_name=file_name,
+                    task_id=task.id,
+                    status="pending"
+                ))
+                
+                logger.info(f"任务创建成功 - file: {file_name}, task_id: {task.id}")
+                
+            except Exception as e:
+                logger.error(f"创建任务失败 - file: {file_path.name}, error: {str(e)}")
+                tasks.append(BatchUploadTaskInfo(
+                    file_name=file_path.name,
+                    task_id="",
+                    status="failed"
+                ))
+        
+        logger.info(f"批量上传完成 - batch_id: {batch_id}, total_files: {len(extracted_files)}, success_tasks: {len([t for t in tasks if t.status == 'pending'])}")
+        
+        return BatchUploadResponse(
+            success=True,
+            message=f"批量上传成功，共 {len(extracted_files)} 个文件，正在后台处理",
+            code=202,
+            batch_id=batch_id,
+            total_files=len(extracted_files),
+            tasks=tasks
+        )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"批量上传失败 - filename: {file.filename}, error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"批量上传失败: {str(e)}")
 
 
 @router.get("/task/{task_id}", response_model=TaskStatusResponse)

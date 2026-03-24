@@ -90,3 +90,16 @@ class TaskResultResponse(BaseModel):
     chunks_count: Optional[int] = None
     document_ids: Optional[List[str]] = None
     deleted_chunks: Optional[int] = None
+
+
+class BatchUploadTaskInfo(BaseModel):
+    file_name: str
+    task_id: str
+    status: str = "pending"
+
+
+class BatchUploadResponse(BaseResponse):
+    batch_id: str
+    total_files: int
+    tasks: List[BatchUploadTaskInfo]
+    message: str
