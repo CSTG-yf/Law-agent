@@ -6,8 +6,35 @@ from langchain_core.messages import BaseMessage, AIMessage
 
 
 class SSEStreamer:
+    GENERATE_NODE_NAMES = {"generate", "agent", "chat", "llm"}
+    SKIP_NODE_NAMES = {"intent_classifier", "query_rewriter", "intent", "rewrite", "classify", "retrieval_pipeline"}
+
     def __init__(self):
         pass
+
+    @staticmethod
+    def _should_stream_token(event: Dict[str, Any], in_generate_phase: bool) -> bool:
+        if in_generate_phase:
+            return True
+        
+        tags = event.get("tags", [])
+        event_name = event.get("name", "").lower()
+        
+        for tag in tags:
+            tag_lower = tag.lower() if isinstance(tag, str) else ""
+            for skip_name in SSEStreamer.SKIP_NODE_NAMES:
+                if skip_name in tag_lower:
+                    return False
+        
+        for skip_name in SSEStreamer.SKIP_NODE_NAMES:
+            if skip_name in event_name:
+                return False
+        
+        for gen_name in SSEStreamer.GENERATE_NODE_NAMES:
+            if gen_name in event_name:
+                return True
+        
+        return False
 
     @staticmethod
     async def stream_agent_response(
@@ -21,7 +48,8 @@ class SSEStreamer:
         retrieval_metadata: Optional[Dict[str, Any]] = None,
         title: Optional[str] = None,
         user_message: Optional[str] = None,
-        title_generator: Optional[callable] = None
+        title_generator: Optional[callable] = None,
+        agent: Optional[Any] = None
     ) -> AsyncGenerator[str, None]:
         if message_id:
             metadata_data = {
@@ -37,13 +65,55 @@ class SSEStreamer:
             )
 
         assistant_content = ""
+        in_generate_phase = False
+        collected_sources = []
+        collected_metadata = None
         
         async for event in graph.astream_events(
             state,
             config=config,
             version="v2"
         ):
-            if event["event"] == "on_chat_model_stream":
+            if event["event"] == "on_chain_start":
+                event_name = event.get("name", "").lower()
+                if "generate" in event_name:
+                    in_generate_phase = True
+            
+            elif event["event"] == "on_chain_end":
+                event_name = event.get("name", "").lower()
+                if "retrieve" in event_name:
+                    output = event["data"].get("output", {})
+                    if output and isinstance(output, dict):
+                        context = output.get("context", [])
+                        if context:
+                            for doc in context:
+                                if hasattr(doc, "page_content"):
+                                    collected_sources.append({
+                                        "content": doc.page_content[:200],
+                                        "metadata": getattr(doc, "metadata", {})
+                                    })
+                        metadata = output.get("retrieval_metadata")
+                        if metadata:
+                            collected_metadata = metadata
+                
+                if "generate" in event_name:
+                    in_generate_phase = False
+                    messages = event["data"].get("output", {}).get("messages", [])
+                    if messages:
+                        last_message = messages[-1]
+                        if isinstance(last_message, AIMessage):
+                            yield SSEStreamer._format_sse(
+                                type="complete",
+                                data={
+                                    "content": last_message.content,
+                                    "message_id": getattr(last_message, "id", "")
+                                }
+                            )
+
+            elif event["event"] == "on_chat_model_stream":
+                if not SSEStreamer._should_stream_token(event, in_generate_phase):
+                    continue
+                    
                 chunk = event["data"]["chunk"]
                 if hasattr(chunk, "content") and chunk.content:
                     assistant_content += chunk.content
@@ -70,35 +140,21 @@ class SSEStreamer:
                     }
                 )
 
-            elif event["event"] == "on_chain_end":
-                if "generate" in event.get("name", ""):
-                    messages = event["data"].get("output", {}).get("messages", [])
-                    if messages:
-                        last_message = messages[-1]
-                        if isinstance(last_message, AIMessage):
-                            yield SSEStreamer._format_sse(
-                                type="complete",
-                                data={
-                                    "content": last_message.content,
-                                    "message_id": getattr(last_message, "id", "")
-                                }
-                            )
-
-        if sources:
+        if collected_sources:
             yield SSEStreamer._format_sse(
                 type="sources",
-                data={"sources": sources}
+                data={"sources": collected_sources}
             )
 
-        if retrieval_metadata:
+        if collected_metadata:
             yield SSEStreamer._format_sse(
                 type="intent",
                 data={
-                    "intent": retrieval_metadata.get("intent"),
-                    "rewritten_query": retrieval_metadata.get("rewritten_query"),
-                    "original_query": retrieval_metadata.get("original_query"),
-                    "rewrite_type": retrieval_metadata.get("rewrite_type"),
-                    "intent_confidence": retrieval_metadata.get("intent_confidence")
+                    "intent": collected_metadata.get("intent"),
+                    "rewritten_query": collected_metadata.get("rewritten_query"),
+                    "original_query": collected_metadata.get("original_query"),
+                    "rewrite_type": collected_metadata.get("rewrite_type"),
+                    "intent_confidence": collected_metadata.get("intent_confidence")
                 }
             )
 
@@ -168,7 +224,8 @@ class StreamingResponseBuilder:
         retrieval_metadata: Optional[Dict[str, Any]] = None,
         title: Optional[str] = None,
         user_message: Optional[str] = None,
-        title_generator: Optional[callable] = None
+        title_generator: Optional[callable] = None,
+        agent: Optional[Any] = None
     ) -> StreamingResponse:
         generator = self.streamer.stream_agent_response(
             graph,
@@ -181,7 +238,8 @@ class StreamingResponseBuilder:
             retrieval_metadata,
             title,
             user_message,
-            title_generator
+            title_generator,
+            agent
         )
         return SSEStreamer.create_streaming_response(generator)
 

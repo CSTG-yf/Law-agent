@@ -136,8 +136,6 @@ async def send_message(request: ChatRequest):
             logger.info(f"开始流式响应 - session_id: {session_id}, use_rag: {request.use_rag}")
             
             message_id = str(uuid.uuid4())
-            sources = []
-            retrieval_metadata = None
             title = session.get("title") if session_id in _sessions else None
             
             async def title_generator_wrapper(user_msg: str, assistant_msg: str) -> str:
@@ -154,7 +152,7 @@ async def send_message(request: ChatRequest):
                         "role": "assistant",
                         "content": assistant_msg,
                         "timestamp": datetime.now().isoformat(),
-                        "sources": sources if sources else None
+                        "sources": None
                     })
                     logger.info(f"更新会话标题和消息 - session_id: {session_id}, title: {generated_title}")
                 return generated_title
@@ -163,18 +161,6 @@ async def send_message(request: ChatRequest):
             if title is None:
                 title_generator = title_generator_wrapper
             
-            if request.use_rag:
-                temp_result = await agent.ainvoke(state_update, config=config)
-                if temp_result.get("context"):
-                    for doc in temp_result["context"]:
-                        source_info = {
-                            "content": doc.page_content[:200],
-                            "metadata": doc.metadata
-                        }
-                        sources.append(source_info)
-                retrieval_metadata = temp_result.get("retrieval_metadata")
-                logger.info(f"获取到 {len(sources)} 个引用来源")
-            
             return await streaming_builder.build_conversation_stream(
                 agent.get_compiled_graph(),
                 state_update,
@@ -182,11 +168,12 @@ async def send_message(request: ChatRequest):
                 message_id=message_id,
                 session_id=session_id,
                 role="assistant",
-                sources=sources if sources else None,
-                retrieval_metadata=retrieval_metadata,
+                sources=None,
+                retrieval_metadata=None,
                 title=title,
                 user_message=request.message,
-                title_generator=title_generator
+                title_generator=title_generator,
+                agent=agent
             )
         else:
             logger.info(f"开始非流式响应 - session_id: {session_id}, use_rag: {request.use_rag}")
