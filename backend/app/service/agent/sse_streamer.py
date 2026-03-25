@@ -18,18 +18,26 @@ class SSEStreamer:
         session_id: Optional[str] = None,
         role: str = "assistant",
         sources: Optional[List[Dict[str, Any]]] = None,
-        retrieval_metadata: Optional[Dict[str, Any]] = None
+        retrieval_metadata: Optional[Dict[str, Any]] = None,
+        title: Optional[str] = None,
+        user_message: Optional[str] = None,
+        title_generator: Optional[callable] = None
     ) -> AsyncGenerator[str, None]:
         if message_id:
+            metadata_data = {
+                "message_id": message_id,
+                "session_id": session_id,
+                "role": role
+            }
+            if title:
+                metadata_data["title"] = title
             yield SSEStreamer._format_sse(
                 type="metadata",
-                data={
-                    "message_id": message_id,
-                    "session_id": session_id,
-                    "role": role
-                }
+                data=metadata_data
             )
 
+        assistant_content = ""
+        
         async for event in graph.astream_events(
             state,
             config=config,
@@ -38,6 +46,7 @@ class SSEStreamer:
             if event["event"] == "on_chat_model_stream":
                 chunk = event["data"]["chunk"]
                 if hasattr(chunk, "content") and chunk.content:
+                    assistant_content += chunk.content
                     yield SSEStreamer._format_sse(
                         type="token",
                         data={"content": chunk.content}
@@ -93,6 +102,16 @@ class SSEStreamer:
                 }
             )
 
+        if title_generator and user_message and assistant_content and title is None:
+            try:
+                generated_title = await title_generator(user_message, assistant_content)
+                yield SSEStreamer._format_sse(
+                    type="title",
+                    data={"title": generated_title}
+                )
+            except Exception as e:
+                pass
+
         yield SSEStreamer._format_sse(
             type="done",
             data={}
@@ -146,7 +165,10 @@ class StreamingResponseBuilder:
         session_id: Optional[str] = None,
         role: str = "assistant",
         sources: Optional[List[Dict[str, Any]]] = None,
-        retrieval_metadata: Optional[Dict[str, Any]] = None
+        retrieval_metadata: Optional[Dict[str, Any]] = None,
+        title: Optional[str] = None,
+        user_message: Optional[str] = None,
+        title_generator: Optional[callable] = None
     ) -> StreamingResponse:
         generator = self.streamer.stream_agent_response(
             graph,
@@ -156,7 +178,10 @@ class StreamingResponseBuilder:
             session_id,
             role,
             sources,
-            retrieval_metadata
+            retrieval_metadata,
+            title,
+            user_message,
+            title_generator
         )
         return SSEStreamer.create_streaming_response(generator)
 

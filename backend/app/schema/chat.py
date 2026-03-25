@@ -55,6 +55,7 @@ class ChatResponse(BaseModel):
     pre_retrieval_used: bool = Field(False, description="是否使用了预检索结果")
     parallel_execution: bool = Field(False, description="是否使用了并行执行")
     total_time: float = Field(0.0, description="总处理时间(秒)")
+    title: Optional[str] = Field(None, description="会话标题")
 
 
 class ConversationHistory(BaseModel):
@@ -71,6 +72,7 @@ class SessionInfo(BaseModel):
     created_at: str = Field(..., description="创建时间")
     message_count: int = Field(..., description="消息数量")
     rag_enabled: bool = Field(False, description="是否启用RAG")
+    title: Optional[str] = Field(None, description="会话标题")
 
 
 class StreamEvent(BaseModel):

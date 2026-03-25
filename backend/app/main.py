@@ -92,8 +92,8 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
+        "app.main:app",  # 应用模块和函数名
+        host="0.0.0.0",  # 监听所有IP地址
+        port=8000,  # 监听端口
+        reload=False   # 开启后会自动重启服务器，但会占用更多内存
     )

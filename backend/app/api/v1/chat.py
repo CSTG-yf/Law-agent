@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional
+from openai import OpenAI
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, AIMessage
@@ -24,7 +25,65 @@ logger = get_logger("chat_api")
 
 streaming_builder = StreamingResponseBuilder()
 
+client = OpenAI(
+    base_url=settings.OPENAI_BASE_URL,
+    api_key=settings.DASHSCOPE_API_KEY or settings.OPENAI_API_KEY
+)
+
 _sessions = {}
+
+
+async def generate_session_title(user_message: str, assistant_message: str) -> str:
+    try:
+        logger.info(f"开始生成会话标题 - user_message: {user_message[:50]}..., assistant_message: {assistant_message[:50]}...")
+        
+        response = client.chat.completions.create(
+            model=settings.MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": """你是一个专业的会话标题生成助手。请根据用户的提问和AI的回答，生成一个简洁、准确、有概括性的会话标题。
+
+标题生成要求：
+1. 长度控制在8-20个字之间
+2. 准确概括对话的核心主题和内容
+3. 使用简洁、专业的语言
+4. 突出问题的类型或领域（如：劳动纠纷、合同纠纷、交通事故等）
+5. 不包含标点符号（除了必要的问号或感叹号）
+6. 避免使用"关于"、"关于什么"等冗余词汇
+7. 优先使用法律专业术语
+
+示例：
+- 用户问"劳动合同解除需要什么条件？"，回答涉及劳动合同法第39条 → 标题："劳动合同解除条件"
+- 用户问"交通事故如何赔偿？"，回答涉及赔偿标准和计算方法 → 标题："交通事故赔偿标准"
+- 用户问"租房合同违约怎么办？"，回答涉及违约责任和维权途径 → 标题："租房合同违约处理"
+"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""请为以下对话生成一个标题：
+
+用户提问：{user_message}
+
+AI回答：{assistant_message[:200]}
+
+请直接输出标题，不要包含任何解释。"""
+                }
+            ],
+            temperature=0.5,
+            max_tokens=30
+        )
+        
+        title = response.choices[0].message.content.strip()
+        
+        if len(title) > 20:
+            title = title[:20]
+        
+        logger.info(f"会话标题生成成功 - title: {title}")
+        return title
+    except Exception as e:
+        logger.error(f"会话标题生成失败 - error: {str(e)}")
+        return user_message[:20]
 
 
 @router.post("/message", response_model=dict)
@@ -48,7 +107,8 @@ async def send_message(request: ChatRequest):
                 "user_id": user_id,
                 "created_at": datetime.now().isoformat(),
                 "messages": [],
-                "rag_enabled": request.use_rag
+                "rag_enabled": request.use_rag,
+                "title": None
             }
             logger.info(f"创建新会话 - session_id: {session_id}")
 
@@ -78,6 +138,18 @@ async def send_message(request: ChatRequest):
             message_id = str(uuid.uuid4())
             sources = []
             retrieval_metadata = None
+            title = session.get("title") if session_id in _sessions else None
+            
+            async def title_generator_wrapper(user_msg: str, assistant_msg: str) -> str:
+                generated_title = await generate_session_title(user_msg, assistant_msg)
+                if session_id in _sessions:
+                    _sessions[session_id]["title"] = generated_title
+                    logger.info(f"更新会话标题 - session_id: {session_id}, title: {generated_title}")
+                return generated_title
+            
+            title_generator = None
+            if title is None:
+                title_generator = title_generator_wrapper
             
             if request.use_rag:
                 temp_result = await agent.ainvoke(state_update, config=config)
@@ -99,7 +171,10 @@ async def send_message(request: ChatRequest):
                 session_id=session_id,
                 role="assistant",
                 sources=sources if sources else None,
-                retrieval_metadata=retrieval_metadata
+                retrieval_metadata=retrieval_metadata,
+                title=title,
+                user_message=request.message,
+                title_generator=title_generator
             )
         else:
             logger.info(f"开始非流式响应 - session_id: {session_id}, use_rag: {request.use_rag}")
@@ -162,6 +237,10 @@ async def send_message(request: ChatRequest):
                         "timestamp": datetime.now().isoformat()
                     })
 
+            if session.get("title") is None:
+                session["title"] = await generate_session_title(request.message, content)
+                logger.info(f"生成会话标题 - session_id: {session_id}, title: {session['title']}")
+
             response = ChatResponse(
                 message_id=str(uuid.uuid4()),
                 session_id=session_id,
@@ -179,7 +258,8 @@ async def send_message(request: ChatRequest):
                 entities=entities,
                 pre_retrieval_used=pre_retrieval_used,
                 parallel_execution=parallel_execution,
-                total_time=total_time
+                total_time=total_time,
+                title=session.get("title")
             )
 
             logger.info(f"聊天消息处理完成 - session_id: {session_id}, response_length: {len(content)}")
@@ -216,7 +296,8 @@ async def get_session(session_id: str):
         user_id=session["user_id"],
         created_at=session["created_at"],
         message_count=len(session["messages"]),
-        rag_enabled=session.get("rag_enabled", False)
+        rag_enabled=session.get("rag_enabled", False),
+        title=session.get("title")
     )
 
     logger.info(f"查询会话信息成功 - session_id: {session_id}, message_count: {len(session['messages'])}")
@@ -297,7 +378,8 @@ async def list_sessions(user_id: Optional[str] = None):
                 user_id=session_data["user_id"],
                 created_at=session_data["created_at"],
                 message_count=len(session_data["messages"]),
-                rag_enabled=session_data.get("rag_enabled", False)
+                rag_enabled=session_data.get("rag_enabled", False),
+                title=session_data.get("title")
             ))
 
     logger.info(f"查询会话列表成功 - total: {len(sessions)}")
