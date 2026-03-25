@@ -6,6 +6,7 @@ class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"] = Field(..., description="消息角色")
     content: str = Field(..., description="消息内容")
     timestamp: Optional[str] = Field(None, description="消息时间戳")
+    sources: Optional[List[dict]] = Field(None, description="引用来源（仅assistant消息）")
 
 
 class RAGConfig(BaseModel):

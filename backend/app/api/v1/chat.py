@@ -144,7 +144,19 @@ async def send_message(request: ChatRequest):
                 generated_title = await generate_session_title(user_msg, assistant_msg)
                 if session_id in _sessions:
                     _sessions[session_id]["title"] = generated_title
-                    logger.info(f"更新会话标题 - session_id: {session_id}, title: {generated_title}")
+                    _sessions[session_id]["messages"].append({
+                        "role": "user",
+                        "content": user_msg,
+                        "timestamp": datetime.now().isoformat(),
+                        "sources": None
+                    })
+                    _sessions[session_id]["messages"].append({
+                        "role": "assistant",
+                        "content": assistant_msg,
+                        "timestamp": datetime.now().isoformat(),
+                        "sources": sources if sources else None
+                    })
+                    logger.info(f"更新会话标题和消息 - session_id: {session_id}, title: {generated_title}")
                 return generated_title
             
             title_generator = None
@@ -228,13 +240,15 @@ async def send_message(request: ChatRequest):
                     session["messages"].append({
                         "role": "user",
                         "content": msg.content,
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": datetime.now().isoformat(),
+                        "sources": None
                     })
                 elif isinstance(msg, AIMessage):
                     session["messages"].append({
                         "role": "assistant",
                         "content": msg.content,
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": datetime.now().isoformat(),
+                        "sources": sources if sources else None
                     })
 
             if session.get("title") is None:

@@ -25,4 +25,4 @@
 
 12. query要进行改写，多轮回答要结合会话历史中的“待解决意图”进行二次检索  （ √   ）
 
-
+13./api/v1/chat/sessions/{session_id}/history  接口返回之前的sources查询的文档   （   ）
