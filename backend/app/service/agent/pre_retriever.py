@@ -3,6 +3,7 @@ from typing import List, Optional
 from langchain_core.documents import Document
 from pydantic import BaseModel
 from app.service.vector_db import ChromaVectorStore
+from app.core.config import settings
 from app.core.logger import get_logger
 
 logger = get_logger("pre_retriever")
@@ -22,8 +23,9 @@ class PreRetriever:
     async def pre_retrieve(
         self,
         query: str,
-        top_k: int = 5
+        top_k: int = None
     ) -> PreRetrieveResult:
+        top_k = top_k or settings.PRE_RETRIEVE_TOP_K
         start_time = time.time()
         logger.info(f"预检索开始 - query: {query[:50]}, top_k: {top_k}")
 

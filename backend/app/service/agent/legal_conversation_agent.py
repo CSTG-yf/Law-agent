@@ -8,6 +8,7 @@ from app.service.agent.conversation_state import ConversationState
 from app.service.agent.rag_retriever import RAGRetriever
 from app.service.agent.retrieval_pipeline import SmartRetrievalPipeline
 from app.service.vector_db import ChromaVectorStore
+from app.core.config import settings
 from app.service.agent.official_tools import (
     search_cases, 
     search_laws, 
@@ -29,14 +30,14 @@ class LegalConversationAgent:
         llm: ChatOpenAI,
         rag_retriever: Optional[RAGRetriever] = None,
         vector_db: Optional[ChromaVectorStore] = None,
-        max_history: int = 10,
+        max_history: int = None,
         enable_parallel: bool = True,
         use_ner: bool = True
     ):
         self.llm = llm
         self.rag_retriever = rag_retriever
         self.vector_db = vector_db
-        self.max_history = max_history
+        self.max_history = max_history or settings.MAX_HISTORY_LENGTH
         self.checkpointer = MemorySaver()
         self.tools = [search_cases, search_laws]
         self.llm_with_tools = llm.bind_tools(self.tools)
@@ -143,12 +144,12 @@ class LegalConversationAgent:
                 "documents_count": metadata.documents_count,
                 "retrieval_strategy": metadata.retrieval_strategy,
                 "entities": metadata.entities,
-                "pre_retrieval_used": metadata.pre_retrieval_used,
+                "pre_retrieval_hint": metadata.pre_retrieval_hint,
                 "parallel_execution": metadata.parallel_execution,
                 "total_time": metadata.total_time
             }
             
-            logger.info(f"智能检索完成 - intent: {metadata.intent}, rewrite_type: {metadata.rewrite_type}, documents: {len(documents)}, parallel: {metadata.parallel_execution}, pre_retrieval_used: {metadata.pre_retrieval_used}")
+            logger.info(f"智能检索完成 - intent: {metadata.intent}, rewrite_type: {metadata.rewrite_type}, documents: {len(documents)}, parallel: {metadata.parallel_execution}, pre_retrieval_hint: {metadata.pre_retrieval_hint}")
             
             return {
                 **state,
@@ -180,7 +181,7 @@ class LegalConversationAgent:
                     "documents_count": len(documents),
                     "retrieval_strategy": strategy,
                     "entities": None,
-                    "pre_retrieval_used": False,
+                    "pre_retrieval_hint": None,
                     "parallel_execution": False,
                     "total_time": 0.0
                 }

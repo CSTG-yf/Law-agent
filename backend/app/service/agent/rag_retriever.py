@@ -3,6 +3,7 @@ from langchain_core.documents import Document
 from app.service.vector_db import ChromaVectorStore
 from app.service.rag.hybrid_retriever import AdvancedRAGService
 from app.service.rag.reranker import Reranker
+from app.core.config import settings
 from app.core.logger import get_logger
 
 logger = get_logger("rag_retriever")
@@ -18,10 +19,11 @@ class RAGRetriever:
         self,
         query: str,
         strategy: str = "vector",
-        top_k: int = 5,
+        top_k: int = None,
         score_threshold: float = 0.7,
         enable_rerank: bool = False
     ) -> List[Document]:
+        top_k = top_k or settings.RAG_TOP_K
         logger.info(f"开始RAG检索 - query: {query[:100]}, strategy: {strategy}, top_k: {top_k}, enable_rerank: {enable_rerank}")
 
         if strategy == "vector":
@@ -89,7 +91,7 @@ class RAGRetriever:
             query=query,
             strategy="mmr",
             k=top_k,
-            fetch_k=20,
+            fetch_k=settings.RAG_FETCH_K,
             lambda_mult=0.5
         )
 

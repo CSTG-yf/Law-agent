@@ -162,7 +162,11 @@ class HybridRetriever:
             logger.debug(f"BM25结果 - rank: {rank}, doc_id: {doc_id[:50]}..., score: {score:.4f}")
         
         sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
-        final_docs = [doc_docs[doc_id] for doc_id, _ in sorted_docs[:k]]
+        final_docs = []
+        for doc_id, _ in sorted_docs[:k]:
+            doc = doc_docs[doc_id]
+            doc.metadata["source"] = "hybrid"
+            final_docs.append(doc)
         
         logger.info(f"RRF融合完成 - 合并后文档数: {len(doc_scores)}, 返回前{k}个")
         for i, (doc_id, score) in enumerate(sorted_docs[:k]):
@@ -199,6 +203,8 @@ class MMRRetriever:
         Returns:
             检索结果列表
         """
+        logger.info(f"开始MMR检索 - query: {query[:50]}, k: {k}, fetch_k: {fetch_k}, lambda_mult: {lambda_mult}")
+        
         initial_results = self.vector_store.query(
             query,
             n_results=fetch_k,
@@ -206,6 +212,7 @@ class MMRRetriever:
         )
         
         if not initial_results.get("documents") or not initial_results["documents"][0]:
+            logger.warning("MMR检索未找到初始结果")
             return []
         
         docs = []
@@ -218,7 +225,16 @@ class MMRRetriever:
             )
             docs.append(doc)
         
+        logger.info(f"MMR初始检索完成 - 获取 {len(docs)} 个候选文档")
+        
         query_embedding = self.embedding_service.embed_text_sync(query)
+        
+        doc_embeddings = []
+        logger.info(f"开始预计算文档嵌入向量 - 文档数: {len(docs)}")
+        for i, doc in enumerate(docs):
+            emb = self.embedding_service.embed_text_sync(doc.page_content)
+            doc_embeddings.append(emb)
+        logger.info(f"文档嵌入向量预计算完成")
         
         selected = []
         selected_embeddings = []
@@ -229,8 +245,7 @@ class MMRRetriever:
             best_idx = None
             
             for idx in remaining:
-                doc = docs[idx]
-                doc_embedding = self.embedding_service.embed_text_sync(doc.page_content)
+                doc_embedding = doc_embeddings[idx]
                 
                 relevance = 1 - docs[idx].metadata.get("distance", 0)
                 
@@ -252,9 +267,13 @@ class MMRRetriever:
             
             if best_idx is not None:
                 selected.append(docs[best_idx])
-                selected_embeddings.append(self.embedding_service.embed_text_sync(docs[best_idx].page_content))
+                selected_embeddings.append(doc_embeddings[best_idx])
                 remaining.remove(best_idx)
         
+        for doc in selected:
+            doc.metadata["source"] = "mmr"
+        
+        logger.info(f"MMR检索完成 - 返回 {len(selected)} 个文档")
         return selected
     
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
@@ -283,13 +302,26 @@ class MultiQueryRetriever:
             keywords = extract_tags(query, topK=5)
             if keywords:
                 variations.append(" ".join(keywords))
-        except:
-            pass
+                if len(keywords) >= 2:
+                    variations.append(" ".join(keywords[:2]))
+        except Exception as e:
+            logger.warning(f"jieba关键词提取失败: {str(e)}")
+        
+        question_words = ["什么", "怎么", "如何", "为什么", "哪些", "怎样"]
+        for word in question_words:
+            if word in query:
+                simplified = query.replace(word, "")
+                if simplified.strip() and simplified != query:
+                    variations.append(simplified.strip())
+                break
         
         synonyms = self._get_synonyms(query)
         variations.extend(synonyms)
         
-        return list(set(variations))[:5]
+        unique_variations = list(set(variations))[:5]
+        logger.info(f"MultiQuery生成查询变体 - 原始: {query}, 变体数: {len(unique_variations)}, 变体: {unique_variations}")
+        
+        return unique_variations
     
     def _get_synonyms(self, query: str) -> List[str]:
         """获取同义词查询变体"""
@@ -312,18 +344,23 @@ class MultiQueryRetriever:
         Returns:
             合并后的检索结果
         """
+        logger.info(f"开始MultiQuery检索 - query: {query[:50]}, k: {k}")
+        
         queries = self.generate_queries(query)
+        logger.info(f"执行 {len(queries)} 个查询变体检索")
         
         all_docs = []
         doc_scores = {}
         
-        for q in queries:
+        for i, q in enumerate(queries):
+            logger.info(f"MultiQuery检索 [{i+1}/{len(queries)}] - query: {q[:50]}")
             results = self.vector_store.query(q, n_results=k * 2, where=filters)
             
             if results.get("documents") and results["documents"][0]:
-                for i, doc_text in enumerate(results["documents"][0]):
-                    metadata = results["metadatas"][0][i] if results.get("metadatas") else {}
-                    distance = results["distances"][0][i] if results.get("distances") else 0
+                logger.info(f"MultiQuery检索 [{i+1}/{len(queries)}] - 找到 {len(results['documents'][0])} 个文档")
+                for j, doc_text in enumerate(results["documents"][0]):
+                    metadata = results["metadatas"][0][j] if results.get("metadatas") else {}
+                    distance = results["distances"][0][j] if results.get("distances") else 0
                     
                     doc_id = doc_text[:100]
                     score = 1 / (distance + 0.01)
@@ -340,9 +377,19 @@ class MultiQueryRetriever:
                                 metadata=metadata
                             )
                         }
+            else:
+                logger.warning(f"MultiQuery检索 [{i+1}/{len(queries)}] - 未找到结果")
         
         sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1]["score"], reverse=True)
-        return [v["document"] for _, v in sorted_docs[:k]]
+        final_docs = []
+        for doc_id, doc_info in sorted_docs[:k]:
+            doc = doc_info["document"]
+            doc.metadata["source"] = "multi_query"
+            doc.metadata["multi_query_count"] = doc_info["count"]
+            final_docs.append(doc)
+        
+        logger.info(f"MultiQuery检索完成 - 合并后文档数: {len(doc_scores)}, 返回: {len(final_docs)}")
+        return final_docs
 
 
 class AdvancedRAGService:

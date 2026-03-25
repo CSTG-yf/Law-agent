@@ -2,11 +2,12 @@ from typing import List, Optional
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_core.documents import Document
 from app.service.agent.conversation_state import ConversationState
+from app.core.config import settings
 
 
 class ConversationManager:
-    def __init__(self, max_history: int = 10):
-        self.max_history = max_history
+    def __init__(self, max_history: int = None):
+        self.max_history = max_history or settings.MAX_HISTORY_LENGTH
 
     def trim_history(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         if len(messages) <= self.max_history:

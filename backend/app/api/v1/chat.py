@@ -92,7 +92,7 @@ async def send_message(request: ChatRequest):
         logger.info(f"收到聊天消息请求 - session_id: {request.session_id}, user_id: {request.user_id}, message: {request.message[:100]}")
         
         agent = AgentFactory.get_conversation_agent(
-            max_history=request.max_history or 10
+            max_history=request.max_history
         )
 
         session_id = request.session_id
@@ -207,7 +207,7 @@ async def send_message(request: ChatRequest):
             rewritten_query = None
             original_query = None
             entities = None
-            pre_retrieval_used = False
+            pre_retrieval_hint = None
             parallel_execution = False
             total_time = 0.0
             if retrieval_metadata:
@@ -215,7 +215,7 @@ async def send_message(request: ChatRequest):
                 rewritten_query = retrieval_metadata.get("rewritten_query")
                 original_query = retrieval_metadata.get("original_query")
                 entities = retrieval_metadata.get("entities")
-                pre_retrieval_used = retrieval_metadata.get("pre_retrieval_used", False)
+                pre_retrieval_hint = retrieval_metadata.get("pre_retrieval_hint")
                 parallel_execution = retrieval_metadata.get("parallel_execution", False)
                 total_time = retrieval_metadata.get("total_time", 0.0)
                 if retrieval_metadata.get("retrieval_skipped"):
@@ -257,7 +257,7 @@ async def send_message(request: ChatRequest):
                 rewritten_query=rewritten_query,
                 original_query=original_query,
                 entities=entities,
-                pre_retrieval_used=pre_retrieval_used,
+                pre_retrieval_hint=pre_retrieval_hint,
                 parallel_execution=parallel_execution,
                 total_time=total_time,
                 title=session.get("title")

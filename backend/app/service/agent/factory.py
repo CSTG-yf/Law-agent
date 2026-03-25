@@ -56,10 +56,11 @@ class AgentFactory:
     @classmethod
     def get_conversation_agent(
         cls,
-        max_history: int = 10,
+        max_history: int = None,
         enable_parallel: bool = True,
         use_ner: bool = True
     ) -> LegalConversationAgent:
+        max_history = max_history or settings.MAX_HISTORY_LENGTH
         key = f"conversation_{max_history}_{enable_parallel}_{use_ner}"
 
         if key not in cls._agents:

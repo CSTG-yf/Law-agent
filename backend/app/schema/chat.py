@@ -33,7 +33,7 @@ class ChatRequest(BaseModel):
         description="检索策略: vector-向量检索, hybrid-混合检索, mmr-最大边际相关性, multi_query-多查询检索"
     )
     enable_rerank: bool = Field(False, description="是否启用重排序（提升检索精度）")
-    max_history: Optional[int] = Field(10, ge=1, le=50, description="最大历史记录数")
+    max_history: Optional[int] = Field(None, ge=1, le=50, description="最大历史记录数（不传则使用配置默认值）")
     stream: bool = Field(False, description="是否使用流式输出")
     enable_tools: bool = Field(False, description="是否启用工具调用（案例检索、法律法规检索）")
 
@@ -53,7 +53,7 @@ class ChatResponse(BaseModel):
     rewritten_query: Optional[str] = Field(None, description="改写后的查询")
     original_query: Optional[str] = Field(None, description="原始查询")
     entities: Optional[dict] = Field(None, description="识别的实体")
-    pre_retrieval_used: bool = Field(False, description="是否使用了预检索结果")
+    pre_retrieval_hint: Optional[str] = Field(None, description="预检索提示: no_results/high_quality/low_quality")
     parallel_execution: bool = Field(False, description="是否使用了并行执行")
     total_time: float = Field(0.0, description="总处理时间(秒)")
     title: Optional[str] = Field(None, description="会话标题")

@@ -103,7 +103,7 @@ scripts\start-celery.bat
 
 # Linux/Mac
 bash scripts/start-celery.sh
-```
+```s
 
 下载所需huggingface模型：
 Cross-Encoder模型 (重排序):   cross-encoder/ms-marco-MiniLM-L-6-v2  
@@ -111,6 +111,12 @@ NER模型 (实体识别):    uer/roberta-base-finetuned-cluener2020-chinese
 ```bash
 cd backend
 uv run python scripts/download_models.py
+```
+
+
+清空日志内容:
+```bash
+uv run clear_logs.py
 ```
 
 API文档：
@@ -180,10 +186,20 @@ Agent回答流程详解（并行优化版）：
 │   │   chitchat (闲聊) ──────────────────────────────────► 跳过检索       │     │
 │   │                                                      直接对话        │     │
 │   │                                                                      │     │
-│   │   new_question (新问题) ──► 检查预检索结果 ──► 有结果 ──► 直接使用    │     │
-│   │                                           无结果 ──► Query优化       │     │
+│   │   new_question (新问题) ──► 预检索质量评估 ──► 记录提示信息           │     │
+│   │                              │                  │                    │     │
+│   │                              │                  ▼                    │     │
+│   │                              │         pre_retrieval_hint:           │     │
+│   │                              │         • no_results: 无结果          │     │
+│   │                              │         • high_quality: 质量高        │     │
+│   │                              │         • low_quality: 质量一般       │     │
+│   │                              │                                       │     │
+│   │                              └──────────────► 继续执行RAG检索        │     │
 │   │                                                                      │     │
-│   │   follow_up (追问) ──► Query改写 ──► 重新检索                        │     │
+│   │   follow_up (追问) ──► Query改写 ──► 执行RAG检索                     │     │
+│   │                                                                      │     │
+│   │   ⚠️ 重要: 预检索只做前置检查，不替代RAG检索                          │     │
+│   │            模型回答的知识库内容必须来自RAG检索                         │     │
 │   └──────────────────────────────────────────────────────────────────────┘     │
 │                                                                                 │
 │   实体增强:                                                                      │
@@ -209,10 +225,12 @@ Agent回答流程详解（并行优化版）：
                                         │
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Step 5: RAG检索（按需）                                  │
+│                           Step 5: RAG检索（始终执行）                              │
 │                                                                                 │
 │   模块: RAGRetriever → AdvancedRAGService                                       │
-│   条件: use_rag == true 且 intent != "chitchat" 且预检索结果不可用               │
+│   条件: use_rag == true 且 intent != "chitchat"                                 │
+│                                                                                 │
+│   ⚠️ 重要: RAG检索始终执行，预检索结果不作为回答参考                               │
 │                                                                                 │
 │   检索策略（用户参数控制）:                                                        │
 │   • vector: 向量检索 - 基于语义相似度                                             │
@@ -222,7 +240,7 @@ Agent回答流程详解（并行优化版）：
 │                                                                                 │
 │   可选重排序: enable_rerank == true 时使用Cross-Encoder精排                       │
 │                                                                                 │
-│   输出: List[Document] (检索到的相关文档)                                         │
+│   输出: List[Document] (检索到的相关文档，作为模型回答的知识库参考)                │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                         │
                                         ▼

@@ -10,6 +10,7 @@ from app.service.agent.rag_retriever import RAGRetriever
 from app.service.agent.pre_retriever import PreRetriever, PreRetrieveResult
 from app.service.agent.entity_extractor import EntityExtractor, EntityResult
 from app.service.vector_db import ChromaVectorStore
+from app.core.config import settings
 from app.core.logger import get_logger
 
 logger = get_logger("retrieval_pipeline")
@@ -26,7 +27,7 @@ class RetrievalMetadata(BaseModel):
     documents_count: int = 0
     retrieval_strategy: Optional[str] = None
     entities: Optional[Dict[str, Any]] = None
-    pre_retrieval_used: bool = False
+    pre_retrieval_hint: Optional[str] = None
     parallel_execution: bool = False
     total_time: float = 0.0
 
@@ -67,8 +68,10 @@ class SmartRetrievalPipeline:
         use_rag: bool,
         retrieval_strategy: str = "vector",
         enable_rerank: bool = False,
-        top_k: int = 5
+        top_k: int = None
     ) -> Tuple[List[Document], RetrievalMetadata]:
+        top_k = top_k or settings.RAG_TOP_K
+        
         if self.enable_parallel and self.pre_retriever:
             return await self._process_parallel(
                 query=query,
@@ -164,16 +167,18 @@ class SmartRetrievalPipeline:
             logger.info(f"RAG未启用，跳过检索")
             return [], metadata
 
-        documents = []
-
-        if intent_result and intent_result.intent == "new_question":
-            if pre_retrieve_result and pre_retrieve_result.documents_count > 0:
-                documents = self.pre_retriever.convert_to_documents(pre_retrieve_result)
-                metadata.pre_retrieval_used = True
-                metadata.documents_count = len(documents)
-                metadata.total_time = time.time() - start_time
-                logger.info(f"使用预检索结果 - documents: {len(documents)}")
-                return documents, metadata
+        if pre_retrieve_result:
+            if pre_retrieve_result.documents_count == 0:
+                metadata.pre_retrieval_hint = "no_results"
+                logger.info(f"预检索无结果，继续执行RAG检索")
+            else:
+                avg_distance = sum(d.get("distance", 1) for d in pre_retrieve_result.documents) / max(len(pre_retrieve_result.documents), 1)
+                if avg_distance < 0.3:
+                    metadata.pre_retrieval_hint = "high_quality"
+                    logger.info(f"预检索质量较高 - avg_distance: {avg_distance:.3f}")
+                else:
+                    metadata.pre_retrieval_hint = "low_quality"
+                    logger.info(f"预检索质量一般 - avg_distance: {avg_distance:.3f}")
 
         if intent_result and intent_result.needs_rewrite:
             rewritten = await self.query_rewriter.rewrite(query, conversation_history)
@@ -187,7 +192,7 @@ class SmartRetrievalPipeline:
                 metadata.rewrite_type = "实体增强"
 
         query_to_use = metadata.rewritten_query
-        logger.info(f"执行检索 - query: {query_to_use[:50]}, strategy: {retrieval_strategy}")
+        logger.info(f"执行RAG检索 - query: {query_to_use[:50]}, strategy: {retrieval_strategy}")
 
         documents = await self.rag_retriever.retrieve(
             query=query_to_use,
@@ -198,7 +203,7 @@ class SmartRetrievalPipeline:
 
         metadata.documents_count = len(documents)
         metadata.total_time = time.time() - start_time
-        logger.info(f"检索完成 - documents: {len(documents)}, total_time: {metadata.total_time:.3f}s")
+        logger.info(f"RAG检索完成 - documents: {len(documents)}, total_time: {metadata.total_time:.3f}s")
 
         return documents, metadata
 
