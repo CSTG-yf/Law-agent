@@ -170,3 +170,34 @@ class ChromaVectorStore:
         except Exception as e:
             print(f"统计文档数量失败: {e}")
             return 0
+    
+    def get_documents_by_file_hash(self, file_hash: str) -> List[Dict[str, Any]]:
+        """
+        根据文件哈希获取所有分片文档
+        
+        Args:
+            file_hash: 文件哈希值
+            
+        Returns:
+            文档分片列表（按chunk_index排序）
+        """
+        try:
+            results = self.collection.get(
+                where={"file_hash": file_hash}
+            )
+            
+            documents = []
+            for i, doc_id in enumerate(results["ids"]):
+                metadata = results["metadatas"][i] if results["metadatas"] else {}
+                documents.append({
+                    "id": doc_id,
+                    "document": results["documents"][i] if results["documents"] else None,
+                    "metadata": metadata,
+                    "chunk_index": metadata.get("chunk_index", 0)
+                })
+            
+            documents.sort(key=lambda x: x["chunk_index"])
+            return documents
+        except Exception as e:
+            print(f"根据文件哈希获取文档失败: {e}")
+            return []

@@ -255,6 +255,40 @@ class RAGDocumentService:
         """
         return self.file_hashes_db.get(file_hash)
     
+    def get_full_document_content(self, file_hash: str) -> Dict[str, Any]:
+        """
+        获取文档完整内容（合并所有分片）
+        
+        Args:
+            file_hash: 文件哈希
+            
+        Returns:
+            包含基本信息和完整内容的字典
+        """
+        doc_info = self.file_hashes_db.get(file_hash)
+        if doc_info is None:
+            return None
+        
+        chunks = self.vector_store.get_documents_by_file_hash(file_hash)
+        
+        full_content = "\n\n".join([chunk["document"] for chunk in chunks if chunk["document"]])
+        
+        return {
+            "file_hash": file_hash,
+            "file_name": doc_info.get("file_name"),
+            "chunks_count": doc_info.get("chunks_count"),
+            "uploaded_at": doc_info.get("uploaded_at"),
+            "full_content": full_content,
+            "chunks": [
+                {
+                    "chunk_index": chunk["chunk_index"],
+                    "content": chunk["document"],
+                    "metadata": chunk["metadata"]
+                }
+                for chunk in chunks
+            ]
+        }
+    
     def get_all_documents(self) -> List[Dict[str, Any]]:
         """
         获取所有文档信息

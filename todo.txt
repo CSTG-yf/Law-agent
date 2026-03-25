@@ -25,4 +25,8 @@
 
 12. query要进行改写，多轮回答要结合会话历史中的“待解决意图”进行二次检索  （ √   ）
 
-13./api/v1/chat/sessions/{session_id}/history  接口返回之前的sources查询的文档   （   ）
+13./api/v1/chat/sessions/{session_id}/history  接口返回之前的sources查询的文档   （  √ ）
+
+14.且流式输出内返回了意图识别的推理内容，这个应该删掉（  √）
+
+15.预检索和改写后检索好像有点冲突 这个需要调试解决一下 排查一下是不是bug ()

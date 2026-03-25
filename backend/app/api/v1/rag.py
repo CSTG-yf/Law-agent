@@ -19,6 +19,7 @@ from app.schema.rag import (
     DeleteResponse,
     DocumentsListResponse,
     DocumentInfo,
+    DocumentDetailResponse,
     StatisticsResponse,
     TaskSubmitResponse,
     TaskStatusResponse,
@@ -528,13 +529,22 @@ async def get_statistics():
         raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")
 
 
-@router.get("/document/{file_hash}")
+@router.get("/document/{file_hash}", response_model=DocumentDetailResponse)
 async def get_document_info(file_hash: str):
     """
-    获取指定文档的详细信息
+    获取指定文档的详细信息（包含完整内容）
     
     Args:
         file_hash: 文件哈希值
+        
+    Returns:
+        文档详细信息，包含：
+        - file_hash: 文件哈希
+        - file_name: 文件名
+        - chunks_count: 分片数量
+        - uploaded_at: 上传时间
+        - full_content: 完整文档内容（所有分片合并）
+        - chunks: 分片列表（每个分片包含chunk_index、content、metadata）
     """
     try:
         logger.info(f"获取文档信息 - file_hash: {file_hash}")
@@ -543,13 +553,18 @@ async def get_document_info(file_hash: str):
             logger.warning("文件哈希为空")
             raise HTTPException(status_code=400, detail="文件哈希不能为空")
         
-        doc_info = rag_service.get_document_info(file_hash)
-        if doc_info is None:
+        doc_detail = rag_service.get_full_document_content(file_hash)
+        if doc_detail is None:
             logger.warning(f"文档不存在 - file_hash: {file_hash}")
             raise HTTPException(status_code=404, detail="文档不存在")
         
-        logger.info(f"获取文档信息成功 - file_hash: {file_hash}")
-        return doc_info
+        logger.info(f"获取文档信息成功 - file_hash: {file_hash}, chunks_count: {doc_detail.get('chunks_count')}")
+        return DocumentDetailResponse(
+            code=200,
+            status="success",
+            message="获取文档信息成功",
+            data=doc_detail
+        )
     except HTTPException:
         raise
     except Exception as e:

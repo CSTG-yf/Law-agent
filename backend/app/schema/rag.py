@@ -54,6 +54,19 @@ class DocumentInfo(BaseModel):
     uploaded_at: Optional[str] = None
 
 
+class DocumentChunk(BaseModel):
+    chunk_index: int
+    content: str
+    metadata: Dict[str, Any]
+
+
+class DocumentDetailResponse(BaseModel):
+    code: int = 200
+    status: str = "success"
+    message: str = ""
+    data: Optional[Dict[str, Any]] = None
+
+
 class DocumentsListResponse(BaseModel):
     documents: List[DocumentInfo]
     total: int
