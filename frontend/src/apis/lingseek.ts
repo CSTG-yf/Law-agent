@@ -19,12 +19,12 @@ export const generateLingSeekGuidePromptAPI = async (
   console.log('=== generateLingSeekGuidePromptAPI 调用 ===')
   console.log('参数:', data)
   console.log('Token:', token ? `${token.substring(0, 20)}...` : '无')
-  console.log('请求 URL:', `${BASE_URL}/api/v1/workspace/lingseek/guide_prompt`)
+  console.log('请求 URL:', '/api/v1/workspace/lingseek/guide_prompt')
   
   const ctrl = new AbortController()
   
   try {
-    await fetchEventSource(`${BASE_URL}/api/v1/workspace/lingseek/guide_prompt`, {
+    await fetchEventSource('/api/v1/workspace/lingseek/guide_prompt', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -34,10 +34,10 @@ export const generateLingSeekGuidePromptAPI = async (
       signal: ctrl.signal,
       openWhenHidden: true,
       onmessage(event) {
-        console.log('📨 收到原始消息:', event.data)
+        console.log(' 收到原始消息:', event.data)
         if (event.data) {
           try {
-            // 后端返回的是 JSON 格式: { "event": "...", "data": { "chunk": "..." } }
+            // 后端返回的是 JSON 格式：{ "event": "...", "data": { "chunk": "..." } }
             const parsedData = JSON.parse(event.data)
             console.log('📦 解析后的数据:', parsedData)
             
@@ -93,7 +93,7 @@ export const regenerateLingSeekGuidePromptAPI = async (
   const ctrl = new AbortController()
   
   try {
-    await fetchEventSource(`${BASE_URL}/api/v1/workspace/lingseek/guide_prompt/feedback`, {
+    await fetchEventSource('/api/v1/workspace/lingseek/guide_prompt/feedback', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -103,10 +103,10 @@ export const regenerateLingSeekGuidePromptAPI = async (
       signal: ctrl.signal,
       openWhenHidden: true,
       onmessage(event) {
-        console.log('📨 收到原始消息:', event.data)
+        console.log(' 收到原始消息:', event.data)
         if (event.data) {
           try {
-            // 后端返回的是 JSON 格式: { "event": "...", "data": { "chunk": "..." } }
+            // 后端返回的是 JSON 格式：{ "event": "...", "data": { "chunk": "..." } }
             const parsedData = JSON.parse(event.data)
             console.log('📦 解析后的数据:', parsedData)
             
@@ -156,7 +156,7 @@ export const generateLingSeekTasksAPI = async (
   const ctrl = new AbortController()
   
   try {
-    await fetchEventSource(`${BASE_URL}/api/v1/workspace/lingseek/task`, {
+    await fetchEventSource('/api/v1/workspace/lingseek/task', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -166,7 +166,7 @@ export const generateLingSeekTasksAPI = async (
       signal: ctrl.signal,
       openWhenHidden: true,
       onmessage(event) {
-        console.log('📨 收到原始消息:', event.data)
+        console.log(' 收到原始消息:', event.data)
         if (event.data) {
           try {
             // 后端返回的是 JSON 格式: { "event": "...", "data": { "chunk": "..." } }
@@ -226,7 +226,7 @@ export const startLingSeekTaskAPI = async (
   const ctrl = new AbortController()
   
   try {
-    await fetchEventSource(`${BASE_URL}/api/v1/workspace/lingseek/task_start`, {
+    await fetchEventSource('/api/v1/workspace/lingseek/task_start', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -236,7 +236,7 @@ export const startLingSeekTaskAPI = async (
       signal: ctrl.signal,
       openWhenHidden: true,
       onmessage(event) {
-        console.log('📨 收到原始消息:', event.data)
+        console.log(' 收到原始消息:', event.data)
         if (event.data) {
           try {
             // 后端返回的是 JSON 格式: { "event": "...", "data": {...} }
