@@ -136,7 +136,7 @@ async def send_message(request: ChatRequest):
             logger.info(f"开始流式响应 - session_id: {session_id}, use_rag: {request.use_rag}")
             
             message_id = str(uuid.uuid4())
-            title = session.get("title") if session else None
+            title = session.get("title") if session and session.get("title") else None
             
             async def title_generator_wrapper(user_msg: str, assistant_msg: str) -> str:
                 generated_title = await generate_session_title(user_msg, assistant_msg)
@@ -236,9 +236,10 @@ async def send_message(request: ChatRequest):
                         sources=sources if sources else []
                     )
 
-            if session.get("title") is None:
+            if not session.get("title"):
                 generated_title = await generate_session_title(request.message, content)
                 await session_service.update_session(session_id, title=generated_title)
+                session["title"] = generated_title
                 logger.info(f"生成会话标题 - session_id: {session_id}, title: {generated_title}")
 
             response = ChatResponse(
