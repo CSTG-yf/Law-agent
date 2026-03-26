@@ -28,9 +28,9 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="会话ID（可选，不传则自动生成）")
     user_id: str = Field(..., description="用户ID")
     use_rag: bool = Field(False, description="是否使用RAG")
-    retrieval_strategy: Optional[Literal["vector", "hybrid", "mmr", "multi_query"]] = Field(
-        "vector",
-        description="检索策略: vector-向量检索, hybrid-混合检索, mmr-最大边际相关性, multi_query-多查询检索"
+    retrieval_strategy: Optional[Literal["vector", "hybrid", "mmr", "multi_query", ""]] = Field(
+        "",
+        description="检索策略: vector-向量检索, hybrid-混合检索, mmr-最大边际相关性, multi_query-多查询检索, 空字符串-不使用检索"
     )
     enable_rerank: bool = Field(False, description="是否启用重排序（提升检索精度）")
     max_history: Optional[int] = Field(None, ge=1, le=50, description="最大历史记录数（不传则使用配置默认值）")

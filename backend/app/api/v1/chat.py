@@ -121,8 +121,8 @@ async def send_message(request: ChatRequest):
         state_update = {
             "messages": [new_message],
             "use_rag": request.use_rag,
-            "retrieval_strategy": request.retrieval_strategy or "vector",
-            "enable_rerank": request.enable_rerank,
+            "retrieval_strategy": request.retrieval_strategy if request.use_rag else "",
+            "enable_rerank": request.enable_rerank if request.use_rag else False,
             "enable_tools": request.enable_tools,
             "tool_calls": [],
             "tool_results": {}

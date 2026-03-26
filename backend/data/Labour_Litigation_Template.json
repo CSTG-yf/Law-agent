@@ -1,0 +1,181 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LaborDisputeComplaintSchema",
+  "type": "object",
+  "required": ["plaintiff", "defendant", "claims", "facts"],
+
+  "properties": {
+
+    "plaintiff": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "gender": { "type": "string", "enum": ["男", "女"] },
+        "birthday": { "type": "string" },
+        "ethnicity": { "type": "string" },
+        "work_unit": { "type": "string" },
+        "job_title": { "type": "string" },
+        "phone": { "type": "string" },
+        "domicile": { "type": "string" },
+        "habitual_residence": { "type": "string" }
+      }
+    },
+
+    "agent": {
+      "type": "object",
+      "properties": {
+        "has_agent": { "type": "boolean" },
+        "name": { "type": "string" },
+        "work_place": { "type": "string" },
+        "job": { "type": "string" },
+        "phone": { "type": "string" },
+        "auth": {
+          "type": "string",
+          "enum": ["一般", "特别"]
+        }
+      }
+    },
+
+    "service": {
+      "type": "object",
+      "properties": {
+        "address": { "type": "string" },
+        "recipient": { "type": "string" },
+        "phone": { "type": "string" },
+        "allow_electronic": { "type": "boolean" },
+        "wechat": { "type": "string" },
+        "mail": { "type": "string" }
+      }
+    },
+
+    "defendant": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "Company_address": { "type": "string" },
+        "legal_rep": { "type": "string" },
+        "job": { "type": "string" },
+        "phone": { "type": "string" },
+        "social_credit_code": { "type": "string" },
+        "entity_type": { "type": "string" },
+        "is_state_owned": { "type": "boolean" }
+      }
+    },
+
+    "claims": {
+      "type": "object",
+      "properties": {
+
+        "salary": {
+          "type": "object",
+          "properties": {
+            "active": { "type": "boolean" },
+            "details": { "type": "string" }
+          }
+        },
+
+        "double_salary": {
+          "type": "object",
+          "properties": {
+            "active": { "type": "boolean" },
+            "details": { "type": "string" }
+          }
+        },
+
+        "overtime": {
+          "type": "object",
+          "properties": {
+            "active": { "type": "boolean" },
+            "details": { "type": "string" }
+          }
+        },
+
+        "annual_leave": {
+          "type": "object",
+          "properties": {
+            "active": { "type": "boolean" },
+            "details": { "type": "string" }
+          }
+        },
+
+        "social_loss": {
+          "type": "object",
+          "properties": {
+            "active": { "type": "boolean" },
+            "details": { "type": "string" }
+          }
+        },
+
+        "termination_compensation": {
+          "type": "object",
+          "properties": {
+            "active": { "type": "boolean" },
+            "details": { "type": "string" }
+          }
+        },
+
+        "illegal_termination_damages": {
+          "type": "object",
+          "properties": {
+            "active": { "type": "boolean" },
+            "details": { "type": "string" }
+          }
+        },
+
+        "other_requests": { "type": "string" },
+
+        "litigation_cost_burden": {
+          "type": "string",
+          "default": "由被告承担"
+        }
+      }
+    },
+
+    "preservation": {
+      "type": "object",
+      "properties": {
+        "active": { "type": "boolean" },
+        "court": { "type": "string" },
+        "document": { "type": "string" }
+      }
+    },
+
+    "facts": {
+      "type": "object",
+      "required": ["performance_details", "termination_reason"],
+      "properties": {
+
+        "contract_signing": {
+          "type": "string"
+        },
+
+        "performance_details": {
+          "type": "string"
+        },
+
+        "termination_reason": {
+          "type": "string"
+        },
+
+        "work_injury": {
+          "type": ["string", "null"]
+        },
+
+        "arbitration_details": {
+          "type": ["string", "null"]
+        },
+
+        "is_migrant_worker": {
+          "type": "boolean"
+        },
+
+        "legal_basis": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

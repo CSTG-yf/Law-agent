@@ -51,6 +51,11 @@ backend/
 │       │   ├── ollama_embedding.py      # Ollama文本嵌入服务
 │       │   └── reranker.py              # 检索结果重排序
 │       ├── vector_db.py      # 向量数据库（Chroma）的初始化与检索封装
+│       ├── form_filling/    # 法律文书智能填充服务
+│       │   ├── slot_manager.py         # 槽位状态管理器
+│       │   ├── slot_extractor.py       # 语义提取引擎
+│       │   ├── doc_renderer.py        # 文档渲染服务
+│       │   └── conversation_strategy.py # 对话策略管理
 │       └── tasks/            # 异步任务处理
 │           └── document_tasks.py        # 文档处理异步任务
 ├── scripts/
@@ -65,7 +70,7 @@ backend/
 │   └── import/               # 数据导入文件
 ├── backend/chroma_data/      # Chroma 向量数据库数据目录（Docker 挂载点）
 ├── backend/uploads/          # 上传文件存储目录
-├── data/                     # 存放法律文档、向量数据库等数据
+├── data/                     # 存放法律文档模板文件
 ├── docs/                     # 存放 API 文档（如 Swagger/OpenAPI）
 └── tests/                    # 存放单元测试代码
 ```
@@ -458,3 +463,191 @@ API接口：
     "rewritten_query": "劳动纠纷中如何计算经济补偿金？"
   }
 }
+```
+
+---------------------------------------------------------------------------------------------------
+法律文书智能填充模块：
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        法律文书智能填充系统架构                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+│   前端对话界面    │───►│  FastAPI 接口层   │───►│  文书填充Agent    │
+└──────────────────┘    └──────────────────┘    └──────────────────┘
+                                                        │
+                        ┌───────────────────────────────┼───────────────────────────────┐
+                        ▼                               ▼                               ▼
+              ┌──────────────────┐            ┌──────────────────┐            ┌──────────────────┐
+              │   槽位状态管理    │            │   语义提取引擎    │            │   文档渲染服务    │
+              │  (SlotManager)   │            │ (SlotExtractor)  │            │ (DocRenderer)    │
+              └──────────────────┘            └──────────────────┘            └──────────────────┘
+                        │                               │
+                        ▼                               ▼
+              ┌──────────────────┐            ┌──────────────────┐
+              │  业务块状态机     │            │   LLM + Prompt   │
+              │ (BlockFSM)       │            │   (槽位填充指令)  │
+              └──────────────────┘            └──────────────────┘
+```
+
+核心功能模块：
+
+1. **槽位状态管理 (SlotManager)**
+   - 管理填写会话状态
+   - 跟踪每个槽位的值、确认状态、置信度
+   - 计算业务块和整体完成率
+   - 支持槽位更新、查询、删除
+
+2. **语义提取引擎 (SlotExtractor)**
+   - 从用户自然语言中提取结构化信息
+   - 支持多业务块的信息提取
+   - 智能推断隐含信息
+   - 生成澄清问题
+
+3. **文档渲染服务 (DocRenderer)**
+   - 加载Word模板文件
+   - 使用占位符填充数据
+   - 生成最终文档
+   - 支持文档下载
+
+4. **对话策略管理 (ConversationStrategy)**
+   - 根据当前状态生成引导问题
+   - 处理用户意图（修改、跳转、完成）
+   - 决定下一步行动
+
+业务块划分：
+
+| 业务块 | 说明 | 必填项 |
+|--------|------|--------|
+| plaintiff | 原告信息 | 姓名、电话、住址 |
+| agent | 代理人信息 | 无（可选） |
+| service_address | 送达地址 | 地址、收件人、电话 |
+| defendant | 被告信息 | 公司名称、地址 |
+| facts | 事实与理由 | 入职日期、用人单位、离职日期、离职原因 |
+| claims | 诉讼请求 | 无（可选） |
+
+API接口：
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| /api/v1/form-filling/start | POST | 开始新的填写会话 |
+| /api/v1/form-filling/message | POST | 发送消息进行对话式填写 |
+| /api/v1/form-filling/state | POST | 获取当前填写状态 |
+| /api/v1/form-filling/update-slot | POST | 手动更新槽位值 |
+| /api/v1/form-filling/generate | POST | 生成最终文档 |
+| /api/v1/form-filling/download/{filename} | GET | 下载生成的文档 |
+| /api/v1/form-filling/session/{session_id} | DELETE | 删除填写会话 |
+| /api/v1/form-filling/templates | GET | 获取可用模板列表 |
+
+使用流程：
+
+1. 调用 `/start` 接口创建会话，获取 session_id
+2. 通过 `/message` 接口进行对话式填写
+3. 系统自动提取信息并更新槽位
+4. 所有必填项完成后，调用 `/generate` 生成文档
+5. 通过 `/download` 接口下载生成的Word文档
+
+模板占位符格式（使用 Jinja2 语法）：
+
+Word模板中使用 `{{ slot_name }}` 格式的占位符（注意变量名两侧有空格），例如：
+- `{{ plaintiff.name }}` - 原告姓名
+- `{{ defendant.name }}` - 被告公司名称
+- `{{ facts.employment_details.start_date }}` - 入职日期
+
+Jinja2 高级语法支持：
+
+**条件判断**
+```jinja
+{% if plaintiff.gender == '男' %}
+原告先生
+{% else %}
+原告女士
+{% endif %}
+```
+
+**循环遍历**
+```jinja
+{% for claim in claims_list %}
+- {{ claim }}
+{% endfor %}
+```
+
+**默认值**
+```jinja
+{{ plaintiff.phone or '未填写' }}
+```
+
+**完整占位符列表（严格匹配 JSON Schema）**
+
+**原告信息 (plaintiff)**
+- `{{ plaintiff.name }}` - 姓名
+- `{{ plaintiff.gender }}` - 性别（男/女）
+- `{{ plaintiff.birthday }}` - 出生日期
+- `{{ plaintiff.ethnicity }}` - 民族
+- `{{ plaintiff.work_unit }}` - 工作单位
+- `{{ plaintiff.job_title }}` - 职位
+- `{{ plaintiff.phone }}` - 手机号
+- `{{ plaintiff.domicile }}` - 户籍地址
+- `{{ plaintiff.habitual_residence }}` - 现住址
+
+**代理人信息 (agent)**
+- `{{ agent.has_agent }}` - 是否有代理人（true/false）
+- `{{ agent.name }}` - 代理人姓名
+- `{{ agent.work_place }}` - 代理人工作单位
+- `{{ agent.job }}` - 代理人职务
+- `{{ agent.phone }}` - 代理人电话
+- `{{ agent.auth }}` - 授权类型（一般/特别）
+
+**送达地址 (service)**
+- `{{ service.address }}` - 送达地址
+- `{{ service.recipient }}` - 收件人
+- `{{ service.phone }}` - 联系电话
+- `{{ service.allow_electronic }}` - 是否接受电子送达（true/false）
+- `{{ service.wechat }}` - 微信号
+- `{{ service.mail }}` - 电子邮箱
+
+**被告信息 (defendant)**
+- `{{ defendant.name }}` - 公司名称
+- `{{ defendant.address }}` - 公司地址
+- `{{ defendant.Company_address }}` - 公司注册地址
+- `{{ defendant.legal_rep }}` - 法定代表人
+- `{{ defendant.job }}` - 法定代表人职务
+- `{{ defendant.phone }}` - 法定代表人电话
+- `{{ defendant.social_credit_code }}` - 统一社会信用代码
+- `{{ defendant.entity_type }}` - 企业类型
+- `{{ defendant.is_state_owned }}` - 是否国有企业（true/false）
+
+**诉讼请求 (claims)**
+- `{{ claims.salary.active }}` - 是否主张工资（true/false）
+- `{{ claims.salary.details }}` - 工资详情
+- `{{ claims.double_salary.active }}` - 是否主张双倍工资（true/false）
+- `{{ claims.double_salary.details }}` - 双倍工资详情
+- `{{ claims.overtime.active }}` - 是否主张加班费（true/false）
+- `{{ claims.overtime.details }}` - 加班费详情
+- `{{ claims.annual_leave.active }}` - 是否主张年休假工资（true/false）
+- `{{ claims.annual_leave.details }}` - 年休假工资详情
+- `{{ claims.social_loss.active }}` - 是否主张社保损失（true/false）
+- `{{ claims.social_loss.details }}` - 社保损失详情
+- `{{ claims.termination_compensation.active }}` - 是否主张经济补偿金（true/false）
+- `{{ claims.termination_compensation.details }}` - 经济补偿金详情
+- `{{ claims.illegal_termination_damages.active }}` - 是否主张违法解除赔偿金（true/false）
+- `{{ claims.illegal_termination_damages.details }}` - 违法解除赔偿金详情
+- `{{ claims.other_requests }}` - 其他诉讼请求
+- `{{ claims.litigation_cost_burden }}` - 诉讼费用承担
+
+**财产保全 (preservation)**
+- `{{ preservation.active }}` - 是否申请财产保全（true/false）
+- `{{ preservation.court }}` - 保全法院
+- `{{ preservation.document }}` - 保全文书
+
+**事实与理由 (facts)**
+- `{{ facts.contract_signing }}` - 合同签订情况
+- `{{ facts.performance_details }}` - 劳动合同履行情况
+- `{{ facts.termination_reason }}` - 离职原因
+- `{{ facts.work_injury }}` - 工伤情况
+- `{{ facts.arbitration_details }}` - 劳动仲裁情况
+- `{{ facts.is_migrant_worker }}` - 是否农民工（true/false）
+- `{{ facts.legal_basis }}` - 法律依据
+
+---------------------------------------------------------------------------------------------------

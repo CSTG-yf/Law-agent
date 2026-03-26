@@ -35,3 +35,4 @@ backend/uploads/
 backend/redis_data/
 backend/.env
 backend/logs/
+backend/outputs/
