@@ -229,15 +229,15 @@ watch(
                 <span>工作台</span>
               </template>
             </el-menu-item>
-            <el-menu-item index="homepage" @click="goCurrent('homepage')">
+            <!-- <el-menu-item index="homepage" @click="goCurrent('homepage')">
               <template #title>
                 <el-icon>
                   <img src="../assets/explore.svg" width="22px" height="22px" />
                 </el-icon>
                 <span>探索</span>
               </template>
-            </el-menu-item>
-            <el-menu-item index="conversation" @click="goCurrent('conversation')">
+            </el-menu-item> -->
+            <el-menu-item index="homepage" @click="goCurrent('homepage')">
               <template #title>
                 <el-icon>
                   <img src="../assets/dialog.svg" width="22px" height="22px" />
@@ -245,7 +245,15 @@ watch(
                 <span>会话</span>
               </template>
             </el-menu-item>
-            <el-menu-item index="agent" @click="goCurrent('agent')">
+            <!-- <el-menu-item index="conversation" @click="goCurrent('conversation')">
+              <template #title>
+                <el-icon>
+                  <img src="../assets/dialog.svg" width="22px" height="22px" />
+                </el-icon>
+                <span>会话</span>
+              </template>
+            </el-menu-item> -->
+            <!-- <el-menu-item index="agent" @click="goCurrent('agent')">
               <template #title>
                 <el-icon>
                   <img src="../assets/robot.svg" width="22px" height="22px" />
@@ -260,7 +268,7 @@ watch(
                 </el-icon>
                 <span>MCP</span>
               </template>
-            </el-menu-item>
+            </el-menu-item> -->
             <el-menu-item index="knowledge" @click="goCurrent('knowledge')">
               <template #title>
                 <el-icon>
@@ -285,22 +293,22 @@ watch(
                 <span>Skill</span>
               </template>
             </el-menu-item>
-            <el-menu-item index="model" @click="goCurrent('model')">
+            <!-- <el-menu-item index="model" @click="goCurrent('model')">
               <template #title>
                 <el-icon>
                   <img src="../assets/model.svg" width="22px" height="22px" />
                 </el-icon>
                 <span>模型</span>
               </template>
-            </el-menu-item>
-            <!-- <el-menu-item index="dashboard" @click="goCurrent('dashboard')">
+            </el-menu-item> -->
+            <el-menu-item index="dashboard" @click="goCurrent('dashboard')">
               <template #title>
                 <el-icon>
-                  <img src="../assets/dashboard.svg" width="22px" height="22px" />
+                  <img src="../assets/set.svg" width="22px" height="22px" />
                 </el-icon>
-                <span>数据看板</span>
+                <span>设置</span>
               </template>
-            </el-menu-item> -->
+            </el-menu-item>
           </el-menu>
           
           <!-- 底部帮助链接 -->

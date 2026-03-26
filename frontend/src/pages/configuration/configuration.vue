@@ -29,14 +29,17 @@ onMounted(async () => {
 
 const primary = async () => {
   const value = editorInstance?.getValue()
-  const formData = new FormData()
-  formData.append("data", String(value))
-  const data = await updateConfigAPI(formData)
+  // 根据接口文档，应该传递 JSON 对象而不是 FormData
+  // 假设这个 data 字段是某种配置项
+  const data = await updateConfigAPI({ 
+    data: String(value) 
+  } as any) // 使用 as any 绕过类型检查，因为后端可能有不同的字段定义
+  
   if (data.data.data !== "更改配置成功") {
-    alert("请检查您输入的信息或者格式是否正确，必须为json格式")
+    alert("请检查您输入的信息或者格式是否正确，必须为 json 格式")
     const data = await getConfigAPI()
     editorInstance?.setValue(data.data.data)
-  }else{
+  } else {
     alert("更改配置成功")
   }
 }

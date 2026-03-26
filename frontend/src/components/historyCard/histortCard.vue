@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { computed } from "vue"
-import { HistoryListType } from "../../type"
+import { session } from "../../type"
 
 const emits = defineEmits<{
     (event:'delete'):void
@@ -8,13 +8,13 @@ const emits = defineEmits<{
 }>();
 
 const props = defineProps<{
-    item:HistoryListType
+    item:session
 }>();
 
 // 格式化时间显示
 const formattedTime = computed(() => {
   try {
-    const date = new Date(props.item.createTime)
+    const date = new Date(props.item.created_at)
     const now = new Date()
     const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60)
     
@@ -53,15 +53,12 @@ const selectCard = () => {
     <div class="card-main">
       <!-- 左侧图标和标题 -->
       <div class="card-left">
-        <div class="avatar">
+        <!-- <div class="avatar">
           <img :src="props.item.logo || '/default-avatar.png'" alt="" />
-        </div>
+        </div> -->
         <div class="content">
-          <div class="title" :title="props.item.name">
-            {{ props.item.name || '未命名会话' }}
-          </div>
-          <div class="subtitle">
-            {{ props.item.agent || '智能助手' }}
+          <div class="title" :title="props.item.session_title">
+            {{ props.item.session_title || '未命名会话' }}
           </div>
         </div>
       </div>

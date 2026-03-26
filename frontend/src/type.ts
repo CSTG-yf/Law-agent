@@ -1,33 +1,111 @@
+import { s } from "vue-router/dist/router-CWoNjPRp.mjs";
+
+export interface SessionCreateType {
+  name: string,
+  agent_id: string,
+  agent_type: string,
+}
+/**
+ * ChatRequest - 通用聊天请求接口
+ */
+export interface ChatRequest {
+  /**
+   * 是否启用工具调用（案例检索、法律法规检索）
+   */
+  enable_tools?: boolean;
+  /**
+   * 最大历史记录数
+   */
+  max_history?: number;
+  /**
+   * 用户消息
+   */
+  message: string;
+  /**
+   * 检索策略
+   */
+  retrieval_strategy?: string;
+  /**
+   * 会话 ID（可选，不传则自动生成）
+   */
+  session_id?: string;
+  /**
+   * 是否使用流式输出
+   */
+  stream?: boolean;
+  /**
+   * 是否使用 RAG 检索
+   */
+  use_rag?: boolean;
+  /**
+   * 用户 ID
+   */
+  user_id?: string;
+  /**
+   * 是否启用重排序
+   */
+  enable_rerank?: boolean;
+}
+
+// 定义会话列表中的单个会话的信息
+export interface session {
+  session_id: string, //会话ID
+  user_id: string,// 用户ID
+  created_at: string, //创建时间
+  message_count: number, //消息数量
+  rag_enable: boolean //是否启用rag
+  session_title: string, //会话标题
+}
+
+// 会话列表定义
+export interface historyList {
+  sessions: session[],
+  total: number
+}
+
+//查询当前回会话
+
+
+
+
+
+
+
+
+
+
 export  interface DialogCreateType {
     name: string,
     agent_id: string,
     agent_type: string,
 }
+
+
 // searchType
-export  interface searchType {
-  name:string,
+export interface searchType {
+  name: string,
 }
 
 // 保持向后兼容的旧版智能体类型
-export  interface AgentCreateType {
-    name:string,
-    description:string,
-    parameter:string,
-    code:string,
-    logo:any
+export interface AgentCreateType {
+  name: string,
+  description: string,
+  parameter: string,
+  code: string,
+  logo: any
 }
 
-export  interface AgentUpdateType {
-    name:string,
-    description:string,
-    parameter:string,
-    code:string,
-    logoFile:any
+export interface AgentUpdateType {
+  name: string,
+  description: string,
+  parameter: string,
+  code: string,
+  logoFile: any
 }
 
-export  interface MsgLikeType {
-    userInput:string,
-    agentOutput:string,
+export interface MsgLikeType {
+  userInput: string,
+  agentOutput: string,
 }
 
 // 兼容旧版本的CardListType，映射到Agent
@@ -45,10 +123,10 @@ export interface CardListType {
 
 export interface HistoryListType {
   agent: string
-  dialogId: string
+  sessionId: string
   name: string
   createTime: string
-  logo:string
+  logo: string
 }
 
 export interface MessageType {
@@ -69,34 +147,34 @@ export interface ChatMessage {
 
 // 知识库类型定义
 export interface KnowledgeListType {
-    id: string
-    name: string
-    description: string | null
-    user_id: string | null
-    create_time: string
-    update_time: string
-    count: number // 文件数量
-    file_size: string // 文件总大小（已格式化）
+  id: string
+  name: string
+  description: string | null
+  user_id: string | null
+  create_time: string
+  update_time: string
+  count: number // 文件数量
+  file_size: string // 文件总大小（已格式化）
 }
 
 // 知识库文件状态枚举
 export enum KnowledgeFileStatus {
-    FAIL = "❌失败",
-    PROCESS = "🚀进行", 
-    SUCCESS = "✅完成"
+  FAIL = "❌失败",
+  PROCESS = "🚀进行",
+  SUCCESS = "✅完成"
 }
 
 // 知识库文件类型定义
 export interface KnowledgeFileType {
-    id: string
-    file_name: string
-    knowledge_id: string
-    status: KnowledgeFileStatus
-    user_id: string
-    oss_url: string
-    file_size: number
-    create_time: string
-    update_time: string
+  id: string
+  file_name: string
+  knowledge_id: string
+  status: KnowledgeFileStatus
+  user_id: string
+  oss_url: string
+  file_size: number
+  create_time: string
+  update_time: string
 }
 
 // 新增智能体相关类型定义

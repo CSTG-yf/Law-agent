@@ -75,7 +75,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
-    redirect: '/workspace',
+    redirect: '/homepage',
     name: 'index',
     component: Index,
     meta: {

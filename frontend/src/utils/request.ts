@@ -2,24 +2,24 @@
 import axios from 'axios'
 // 1.根域名配置
 // 2.超时时间
-// 3.请求拦截器,响应拦截器
+// 3.请求拦截器，响应拦截器
 
 const request = axios.create({
-    baseURL:'',
-    timeout: 10000  // 全局超时10秒，对于耗时操作单独设置
+    baseURL: import.meta.env.VITE_API_BASE_URL || '',
+    timeout: 10000  // 全局超时 10 秒，对于耗时操作单独设置
 })
 
 // 添加请求拦截器
 request.interceptors.request.use(function (config) {
-  // 添加token到请求头
+  // 添加 token 到请求头
   const token = localStorage.getItem('token');
   if (token) {
-    // 确保headers对象存在
-    config.headers = config.headers || {};
+    // 确保 headers 对象存在，使用类型断言
+    config.headers = config.headers || ({} as any);
     config.headers['Authorization'] = `Bearer ${token}`;
     
     // 调试用
-    // console.log('已添加Authorization头:', `Bearer ${token.substring(0, 10)}...`)
+    // console.log('已添加 Authorization 头:', `Bearer ${token.substring(0, 10)}...`)
   }
   
   // 删除可能泄露敏感信息的日志

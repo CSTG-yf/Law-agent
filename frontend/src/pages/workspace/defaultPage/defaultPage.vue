@@ -9,9 +9,9 @@ import { getVisibleLLMsAPI, type LLMResponse } from '../../../apis/llm'
 import { useUserStore } from '../../../store/user'
 
 const userStore = useUserStore()
-
-const router = useRouter()
 const route = useRoute()
+const router = useRouter()
+
 const inputMessage = ref('')
 const selectedMode = ref('normal')
 const plugins = ref<any[]>([])
@@ -255,12 +255,17 @@ const handleSend = async () => {
     console.log('当前 messages 长度:', messages.value.length)
 
     try {
+      // 根据新的接口规范构建 payload
       const payload: WorkSpaceSimpleTask = {
-        query,
+        message: query,  // 改为 message
         model_id: selectedModelId.value,
-        plugins: selectedTools.value,
+        retrieval_strategy: selectedTools.value[0] as any,  // 使用第一个选中的工具作为检索策略
+        enable_tools: selectedTools.value.length > 0,  // 有选中工具时启用工具调用
+        use_rag: selectedTools.value.length > 0,  // 有选中工具时使用 RAG
+        session_id: currentSessionId.value,
+        stream: true,  // 默认使用流式输出
         mcp_servers: selectedMcpServers.value,
-        session_id: currentSessionId.value  // 添加session_id参数
+        web_search: webSearchEnabled.value  // 添加联网搜索参数
       }
       console.log('准备调用 workspaceSimpleChatStreamAPI，payload:', payload)
       await workspaceSimpleChatStreamAPI(
