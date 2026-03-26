@@ -139,7 +139,7 @@ export const workspaceSimpleChatStreamAPI = async (
         'Content-Type': 'application/json',
         // 'Authorization': token ? `Bearer ${token}` : ''
       },
-      body:JSON.stringify(data),
+      body: JSON.stringify(data),
       signal: ctrl.signal,
       openWhenHidden: true,
       onmessage(event) {
@@ -187,8 +187,10 @@ export const workspaceSimpleChatStreamAPI = async (
       },
       onerror(err) {
         console.error('❌ SSE 错误:', err)
+        // ⚠️ 关键修复：调用 onError 后必须抛出错误以阻止 fetchEventSource 自动重试
         onError?.(err)
-        ctrl.abort()
+        // 抛出错误可以彻底终止连接，防止无限循环重试
+        throw err
       },
       onclose() {
         console.log('✅ SSE 连接关闭')

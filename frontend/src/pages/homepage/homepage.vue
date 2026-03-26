@@ -511,17 +511,17 @@ onMounted(async () => {
   }
 
   // 懒加载 MCP 列表（用于选择）
-  import('../../apis/mcp-server').then(async ({ getMCPServersAPI }) => {
-    try {
-      const res = await getMCPServersAPI()
-      if (res.data && res.data.status_code === 200 && Array.isArray(res.data.data)) {
-        mcpServers.value = res.data.data
-      }
-    } catch (e) {
-      console.error('加载 MCP 服务器失败', e)
-    }
-  })
-  document.addEventListener('click', handleClickOutside)
+  // import('../../apis/mcp-server').then(async ({ getMCPServersAPI }) => {
+  //   try {
+  //     const res = await getMCPServersAPI()
+  //     if (res.data && res.data.status_code === 200 && Array.isArray(res.data.data)) {
+  //       mcpServers.value = res.data.data
+  //     }
+  //   } catch (e) {
+  //     console.error('加载 MCP 服务器失败', e)
+  //   }
+  // })
+  // document.addEventListener('click', handleClickOutside)
 })
 
 onBeforeUnmount(() => {
@@ -540,12 +540,13 @@ watch(
       messages.value = []
       // 加载新会话的历史
       await loadSessionHistory(newSessionId as string)
-    } else if (!newSessionId && oldSessionId) {
-      // 如果从有session_id变为没有，生成新的session_id
-      currentSessionId.value = generateSessionId()
-      console.log('生成新会话ID:', currentSessionId.value)
-      messages.value = []
-    }
+    } 
+    // else if (!newSessionId && oldSessionId) {
+    //   // 如果从有session_id变为没有，生成新的session_id
+    //   currentSessionId.value = generateSessionId()
+    //   console.log('生成新会话ID:', currentSessionId.value)
+    //   messages.value = []
+    // }
   }
 )
 

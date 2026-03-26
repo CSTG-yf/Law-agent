@@ -381,9 +381,11 @@ onMounted(() => {
     </div>
 
     <!-- 模型列表 -->
-    <div class="model-container" v-loading="loading">
+    <!-- <div class="model-container" v-loading="loading"> -->
+      <div class="model-container" >
       <!-- 列表头部 -->
-      <div class="list-header" v-if="models.length > 0">
+      <!-- <div class="list-header" v-if="models.length > 0"> -->
+        <div class="list-header" >
         <div class="col-name">模型名称</div>
         <div class="col-provider">提供商</div>
         <div class="col-type">模型类型</div>
@@ -392,7 +394,8 @@ onMounted(() => {
       </div>
 
       <!-- 列表内容 -->
-      <div class="model-list" v-if="models.length > 0">
+      <!-- <div class="model-list" v-if="models.length > 0"> -->
+        <div class="model-list" >
         <div 
           v-for="model in models" 
           :key="model.llm_id" 

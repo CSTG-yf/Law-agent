@@ -74,7 +74,11 @@ export interface historyList {
 
 
 
-
+export  interface DialogCreateType {
+    name: string,
+    agent_id: string,
+    agent_type: string,
+}
 
 
 // searchType
