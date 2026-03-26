@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
-from app.schema.config import EnvConfigUpdate, EnvConfigResponse, EnvConfigData
+from langchain_openai import ChatOpenAI
+from app.schema.config import EnvConfigUpdate, EnvConfigResponse, EnvConfigData, TestModelRequest, TestModelResponse
 from app.core.constants import HttpStatus, get_message
+from app.core.config import settings
 from app.core.logger import get_logger
 
 router = APIRouter(prefix="/config", tags=["Config"])
@@ -75,3 +77,47 @@ async def update_config(config_update: EnvConfigUpdate):
     except Exception as e:
         logger.error(f"更新配置失败 - error: {str(e)}")
         raise HTTPException(status_code=HttpStatus.INTERNAL_SERVER_ERROR, detail=f"Failed to update configuration: {str(e)}")
+
+
+@router.post("/test", response_model=TestModelResponse)
+async def test_model(request: TestModelRequest):
+    try:
+        logger.info(f"测试模型配置 - message: {request.message[:50]}")
+        
+        llm = ChatOpenAI(
+            base_url=settings.OPENAI_BASE_URL,
+            api_key=settings.OPENAI_API_KEY,
+            model=settings.MODEL_NAME,
+            temperature=0.7,
+            max_tokens=20
+        )
+        
+        response = await llm.ainvoke(request.message)
+        
+        response_text = response.content if hasattr(response, 'content') else str(response)
+        response_text = response_text[:20]
+        
+        logger.info(f"模型测试成功 - response: {response_text}")
+        
+        return TestModelResponse(
+            code=HttpStatus.OK,
+            status="success",
+            message="Model test successful",
+            data={
+                "model": settings.MODEL_NAME,
+                "response": response_text,
+                "original_message": request.message
+            }
+        )
+    except Exception as e:
+        logger.error(f"模型测试失败 - error: {str(e)}")
+        return TestModelResponse(
+            code=HttpStatus.INTERNAL_SERVER_ERROR,
+            status="error",
+            message=f"Model test failed: {str(e)}",
+            data={
+                "model": settings.MODEL_NAME,
+                "error": str(e),
+                "original_message": request.message
+            }
+        )

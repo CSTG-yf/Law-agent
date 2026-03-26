@@ -24,3 +24,14 @@ class EnvConfigResponse(BaseModel):
     status: str
     message: str
     data: Optional[EnvConfigData] = None
+
+
+class TestModelRequest(BaseModel):
+    message: str = Field("你好", min_length=1, max_length=100, description="测试消息")
+
+
+class TestModelResponse(BaseModel):
+    code: int
+    status: str
+    message: str
+    data: Optional[Dict[str, Any]] = None
