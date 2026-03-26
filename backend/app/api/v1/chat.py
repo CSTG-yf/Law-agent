@@ -16,6 +16,7 @@ from app.schema.chat import (
 from app.service.agent.factory import AgentFactory
 from app.service.agent.sse_streamer import StreamingResponseBuilder
 from app.service.agent.official_tools import get_available_tools
+from app.service.session_service import get_session_service
 from app.core.constants import HttpStatus
 from app.core.config import settings
 from app.core.logger import get_logger
@@ -24,13 +25,12 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 logger = get_logger("chat_api")
 
 streaming_builder = StreamingResponseBuilder()
+session_service = get_session_service()
 
 client = OpenAI(
     base_url=settings.OPENAI_BASE_URL,
     api_key=settings.DASHSCOPE_API_KEY or settings.OPENAI_API_KEY
 )
-
-_sessions = {}
 
 
 async def generate_session_title(user_message: str, assistant_message: str) -> str:
@@ -102,17 +102,17 @@ async def send_message(request: ChatRequest):
             session_id = f"session-{uuid.uuid4().hex[:12]}"
             logger.info(f"自动生成session_id - session_id: {session_id}")
 
-        if session_id not in _sessions:
-            _sessions[session_id] = {
-                "user_id": user_id,
-                "created_at": datetime.now().isoformat(),
-                "messages": [],
-                "rag_enabled": request.use_rag,
-                "title": None
-            }
+        session_exists = await session_service.session_exists(session_id)
+        
+        if not session_exists:
+            await session_service.create_session(
+                session_id=session_id,
+                user_id=user_id,
+                rag_enabled=request.use_rag
+            )
             logger.info(f"创建新会话 - session_id: {session_id}")
 
-        session = _sessions[session_id]
+        session = await session_service.get_session(session_id)
 
         config = {"configurable": {"thread_id": session_id}}
 
@@ -136,25 +136,24 @@ async def send_message(request: ChatRequest):
             logger.info(f"开始流式响应 - session_id: {session_id}, use_rag: {request.use_rag}")
             
             message_id = str(uuid.uuid4())
-            title = session.get("title") if session_id in _sessions else None
+            title = session.get("title") if session else None
             
             async def title_generator_wrapper(user_msg: str, assistant_msg: str) -> str:
                 generated_title = await generate_session_title(user_msg, assistant_msg)
-                if session_id in _sessions:
-                    _sessions[session_id]["title"] = generated_title
-                    _sessions[session_id]["messages"].append({
-                        "role": "user",
-                        "content": user_msg,
-                        "timestamp": datetime.now().isoformat(),
-                        "sources": []
-                    })
-                    _sessions[session_id]["messages"].append({
-                        "role": "assistant",
-                        "content": assistant_msg,
-                        "timestamp": datetime.now().isoformat(),
-                        "sources": []
-                    })
-                    logger.info(f"更新会话标题和消息 - session_id: {session_id}, title: {generated_title}")
+                await session_service.update_session(session_id, title=generated_title)
+                await session_service.add_message(
+                    session_id=session_id,
+                    role="user",
+                    content=user_msg,
+                    sources=[]
+                )
+                await session_service.add_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=assistant_msg,
+                    sources=[]
+                )
+                logger.info(f"更新会话标题和消息 - session_id: {session_id}, title: {generated_title}")
                 return generated_title
             
             title_generator = None
@@ -221,26 +220,26 @@ async def send_message(request: ChatRequest):
                 if retrieval_metadata.get("retrieval_skipped"):
                     logger.info(f"检索被跳过 - reason: {retrieval_metadata.get('skip_reason')}")
 
-            session["messages"] = []
             for msg in result["messages"]:
                 if isinstance(msg, HumanMessage):
-                    session["messages"].append({
-                        "role": "user",
-                        "content": msg.content,
-                        "timestamp": datetime.now().isoformat(),
-                        "sources": []
-                    })
+                    await session_service.add_message(
+                        session_id=session_id,
+                        role="user",
+                        content=msg.content,
+                        sources=[]
+                    )
                 elif isinstance(msg, AIMessage):
-                    session["messages"].append({
-                        "role": "assistant",
-                        "content": msg.content,
-                        "timestamp": datetime.now().isoformat(),
-                        "sources": sources if sources else []
-                    })
+                    await session_service.add_message(
+                        session_id=session_id,
+                        role="assistant",
+                        content=msg.content,
+                        sources=sources if sources else []
+                    )
 
             if session.get("title") is None:
-                session["title"] = await generate_session_title(request.message, content)
-                logger.info(f"生成会话标题 - session_id: {session_id}, title: {session['title']}")
+                generated_title = await generate_session_title(request.message, content)
+                await session_service.update_session(session_id, title=generated_title)
+                logger.info(f"生成会话标题 - session_id: {session_id}, title: {generated_title}")
 
             response = ChatResponse(
                 message_id=str(uuid.uuid4()),
@@ -283,25 +282,25 @@ async def send_message(request: ChatRequest):
 async def get_session(session_id: str):
     logger.info(f"查询会话信息 - session_id: {session_id}")
     
-    if session_id not in _sessions:
+    session = await session_service.get_session(session_id)
+    
+    if not session:
         logger.warning(f"会话不存在 - session_id: {session_id}")
         raise HTTPException(
             status_code=HttpStatus.NOT_FOUND,
             detail="Session not found"
         )
 
-    session = _sessions[session_id]
-
     session_info = SessionInfo(
         session_id=session_id,
         user_id=session["user_id"],
         created_at=session["created_at"],
-        message_count=len(session["messages"]),
+        message_count=session.get("message_count", 0),
         rag_enabled=session.get("rag_enabled", False),
         title=session.get("title")
     )
 
-    logger.info(f"查询会话信息成功 - session_id: {session_id}, message_count: {len(session['messages'])}")
+    logger.info(f"查询会话信息成功 - session_id: {session_id}, message_count: {session.get('message_count', 0)}")
     return {
         "code": HttpStatus.OK,
         "status": "success",
@@ -314,25 +313,23 @@ async def get_session(session_id: str):
 async def get_conversation_history(session_id: str, limit: Optional[int] = None):
     logger.info(f"查询会话历史 - session_id: {session_id}, limit: {limit}")
     
-    if session_id not in _sessions:
+    session = await session_service.get_session(session_id)
+    
+    if not session:
         logger.warning(f"会话不存在 - session_id: {session_id}")
         raise HTTPException(
             status_code=HttpStatus.NOT_FOUND,
             detail="Session not found"
         )
 
-    session = _sessions[session_id]
-    messages = session["messages"]
-
-    if limit and limit > 0:
-        messages = messages[-limit:]
+    messages = await session_service.get_messages(session_id, limit)
 
     history = ConversationHistory(
         session_id=session_id,
         messages=messages,
-        total_messages=len(session["messages"]),
+        total_messages=session.get("message_count", 0),
         created_at=session["created_at"],
-        updated_at=datetime.now().isoformat()
+        updated_at=session.get("updated_at", datetime.now().isoformat())
     )
 
     logger.info(f"查询会话历史成功 - session_id: {session_id}, returned_messages: {len(messages)}")
@@ -348,14 +345,14 @@ async def get_conversation_history(session_id: str, limit: Optional[int] = None)
 async def delete_session(session_id: str):
     logger.info(f"删除会话 - session_id: {session_id}")
     
-    if session_id not in _sessions:
+    success = await session_service.delete_session(session_id)
+    
+    if not success:
         logger.warning(f"会话不存在 - session_id: {session_id}")
         raise HTTPException(
             status_code=HttpStatus.NOT_FOUND,
             detail="Session not found"
         )
-
-    del _sessions[session_id]
 
     logger.info(f"删除会话成功 - session_id: {session_id}")
     return {
@@ -370,18 +367,18 @@ async def delete_session(session_id: str):
 async def list_sessions(user_id: Optional[str] = None):
     logger.info(f"查询会话列表 - user_id: {user_id}")
     
+    sessions_data = await session_service.list_sessions(user_id=user_id)
+    
     sessions = []
-
-    for session_id, session_data in _sessions.items():
-        if user_id is None or session_data["user_id"] == user_id:
-            sessions.append(SessionInfo(
-                session_id=session_id,
-                user_id=session_data["user_id"],
-                created_at=session_data["created_at"],
-                message_count=len(session_data["messages"]),
-                rag_enabled=session_data.get("rag_enabled", False),
-                title=session_data.get("title")
-            ))
+    for session_data in sessions_data:
+        sessions.append(SessionInfo(
+            session_id=session_data["session_id"],
+            user_id=session_data["user_id"],
+            created_at=session_data["created_at"],
+            message_count=session_data.get("message_count", 0),
+            rag_enabled=session_data.get("rag_enabled", False),
+            title=session_data.get("title")
+        ))
 
     logger.info(f"查询会话列表成功 - total: {len(sessions)}")
     return {
@@ -399,14 +396,14 @@ async def list_sessions(user_id: Optional[str] = None):
 async def clear_session_history(session_id: str):
     logger.info(f"清空会话历史 - session_id: {session_id}")
     
-    if session_id not in _sessions:
+    success = await session_service.clear_messages(session_id)
+    
+    if not success:
         logger.warning(f"会话不存在 - session_id: {session_id}")
         raise HTTPException(
             status_code=HttpStatus.NOT_FOUND,
             detail="Session not found"
         )
-
-    _sessions[session_id]["messages"] = []
 
     logger.info(f"清空会话历史成功 - session_id: {session_id}")
     return {
