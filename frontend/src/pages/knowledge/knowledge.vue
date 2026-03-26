@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElDialog, ElForm, ElFormItem, ElInput, ElButton } from 'element-plus'
 import 'element-plus/es/components/dialog/style/css'
@@ -10,246 +10,209 @@ import 'element-plus/es/components/button/style/css'
 import { Plus, Document, Folder, Edit, Delete } from '@element-plus/icons-vue'
 import knowledgeIcon from '../../assets/knowledge.svg'
 import { 
-  getKnowledgeListAPI, 
-  createKnowledgeAPI,
-  updateKnowledgeAPI,
-  deleteKnowledgeAPI,
-  KnowledgeResponse,
-  type KnowledgeDeleteRequest,
-  type KnowledgeCreateRequest,
-  type KnowledgeUpdateRequest
+  getRagDocumentsAPI,
+  getRagDocumentContentAPI,
+  deleteRagDocumentAPI,
+  uploadRagDocumentAPI,
+  uploadRagDocumentsBatchAPI,
+  type RagDocumentResponse
 } from '../../apis/knowledge'
-import { KnowledgeListType } from '../../type'
 
-const router = useRouter()
-const knowledges = ref<KnowledgeListType[]>([])
-const loading = ref(false)
+const documents = ref<RagDocumentResponse[]>([])
+const documentsLoading = ref(false)
+const selectedDocument = ref<RagDocumentResponse | null>(null)
+const documentContent = ref('')
+const documentContentLoading = ref(false)
+const uploading = ref(false)
+const batchUploading = ref(false)
+const deleting = ref(false)
 
-// 创建知识库对话框
-const createDialogVisible = ref(false)
-const createForm = ref({
-  knowledge_name: '',
-  knowledge_desc: ''
+// 查询相关状态
+const searchVisible = ref(false)
+const searchKeyword = ref('')
+
+// 基于关键字过滤后的文档列表
+const filteredDocuments = computed(() => {
+  const keyword = searchKeyword.value.trim()
+  if (!keyword) return documents.value
+  return documents.value.filter((doc) => doc.file_name.toLowerCase().includes(keyword.toLowerCase()))
 })
-const createLoading = ref(false)
 
-// 编辑知识库对话框
-const editDialogVisible = ref(false)
-const editForm = ref({
-  knowledge_id: '',
-  knowledge_name: '',
-  knowledge_desc: ''
-})
-const editLoading = ref(false)
-const currentEditKnowledge = ref<KnowledgeListType | null>(null)
+// 触发文件选择
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const handleClickUpload = () => {
+  fileInputRef.value?.click()
+}
 
-// 获取知识库列表
-const fetchKnowledges = async () => {
-  loading.value = true
+// 查询按钮点击，切换输入框显示
+const handleToggleSearch = () => {
+  searchVisible.value = !searchVisible.value
+}
+
+// 确认查询
+const handleSearchConfirm = () => {
+  const keyword = searchKeyword.value.trim()
+  if (!keyword) {
+    ElMessage.warning('请输入要查询的文档名称')
+    return
+  }
+  const matchCount = documents.value.filter((doc) =>
+    doc.file_name.toLowerCase().includes(keyword.toLowerCase())
+  ).length
+  if (matchCount === 0) {
+    ElMessage.info('未找到匹配的文档')
+  } else {
+    ElMessage.success(`共找到 ${matchCount} 个匹配文档`)
+  }
+}
+
+// 触发批量 ZIP 上传
+const batchFileInputRef = ref<HTMLInputElement | null>(null)
+const handleClickBatchUpload = () => {
+  batchFileInputRef.value?.click()
+}
+
+// 处理文件选择并上传
+const handleFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  const formData = new FormData()
+  formData.append('file', file)
+  // 这里先传一个简单的 metadata 示例，你可以根据需要改成真正的分类/作者等
+  formData.append('metadata', JSON.stringify({ category: '默认分类', author: '未知' }))
+
+  uploading.value = true
   try {
-         const response = await getKnowledgeListAPI()
-     if (response.data.status_code === 200 && response.data.data) {
-       knowledges.value = response.data.data.map((item: KnowledgeResponse) => ({
-         id: item.id,
-         name: item.name,
-         description: item.description,
-         user_id: item.user_id,
-         create_time: item.create_time,
-         update_time: item.update_time,
-         count: item.count,
-         file_size: item.file_size
-       }))
-     } else {
-      ElMessage.error('获取知识库列表失败: ' + response.data.status_message)
+    console.log('正在上传文件:', file.name, '参数', formData)
+    const res = await uploadRagDocumentAPI(formData)
+    // 在控制台查看后端完整响应
+    console.log('文件上传响应:', res)
+    // 一般我们更关心 res.data 的内容
+    console.log('上传返回的数据:', res.data)
+    ElMessage.success('文件上传成功，服务器将异步处理')
+    // 上传完成后，重新拉取一次文档列表
+    await handleGetDocuments()
+  } catch (error) {
+    console.error('上传文档失败:', error)
+    ElMessage.error('上传文档失败')
+  } finally {
+    uploading.value = false
+    // 清空 input，避免同一个文件无法再次选择
+    if (input) input.value = ''
+  }
+}
+
+// 处理 ZIP 批量上传
+const handleBatchFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('metadata', JSON.stringify({ category: '默认分类', tags: ['批量上传'] }))
+
+  batchUploading.value = true
+  try {
+    console.log('正在批量上传 ZIP 文件:', file.name, '参数', formData)
+    const res = await uploadRagDocumentsBatchAPI(formData)
+    console.log('批量上传响应:', res)
+    console.log('批量上传返回的数据:', res.data)
+    ElMessage.success('ZIP 批量上传成功，服务器将异步处理')
+    await handleGetDocuments()
+  } catch (error) {
+    console.error('批量上传文档失败:', error)
+    ElMessage.error('批量上传文档失败')
+  } finally {
+    batchUploading.value = false
+    if (input) input.value = ''
+  }
+}
+
+// 删除当前选中文档
+const handleDeleteDocument = async () => {
+  if (!selectedDocument.value) {
+    ElMessage.warning('请先在左侧选择要删除的文档')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除文档 \"${selectedDocument.value.file_name}\" 及其所有分片吗？`,
+      '删除确认',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch {
+    // 用户取消
+    return
+  }
+
+  deleting.value = true
+  try {
+    const res = await deleteRagDocumentAPI(selectedDocument.value.file_hash)
+    console.log('删除文档响应:', res)
+    ElMessage.success(res.data?.message || '删除任务已提交，后台正在处理')
+    // 删除后刷新列表并清空选中
+    selectedDocument.value = null
+    documentContent.value = ''
+    await handleGetDocuments()
+  } catch (error) {
+    console.error('删除文档失败:', error)
+    ElMessage.error('删除文档失败')
+  } finally {
+    deleting.value = false
+  }
+}
+
+// 获取文档列表
+const handleGetDocuments = async () => {
+  documentsLoading.value = true
+  try {
+    const response = await getRagDocumentsAPI()
+    console.log('后端返回数据:', response.data)
+    if (response.status === 200 && response.data) {
+      // 后端返回结构: { documents: RagDocumentResponse[], total: number }
+      documents.value = response.data.documents || []
+      ElMessage.success('获取文档成功')
+    } else {
+      ElMessage.error('获取文档失败')
     }
   } catch (error) {
-    console.error('获取知识库列表失败:', error)
-    ElMessage.error('获取知识库列表失败')
+    console.error('获取文档失败:', error)
+    ElMessage.error('获取文档失败')
   } finally {
-    loading.value = false
+    documentsLoading.value = false
   }
 }
 
-// 删除知识库对话框控制
-const deleteDialogVisible = ref(false)
-const deleteLoading = ref(false)
-const knowledgeToDelete = ref<KnowledgeListType | null>(null)
-
-// 删除知识库
-const handleDelete = async (knowledge: KnowledgeListType) => {
-  // 显示删除确认对话框
-  knowledgeToDelete.value = knowledge
-  deleteDialogVisible.value = true
-}
-
-// 确认删除知识库
-const confirmDelete = async () => {
-  if (!knowledgeToDelete.value) return
-  
-  deleteLoading.value = true
+// 选中文档并加载内容
+const handleSelectDocument = async (doc: RagDocumentResponse) => {
+  selectedDocument.value = doc
+  documentContent.value = ''
+  documentContentLoading.value = true
   try {
-    const deleteData: KnowledgeDeleteRequest = {
-      knowledge_id: knowledgeToDelete.value.id
-    }
-    
-    const response = await deleteKnowledgeAPI(deleteData)
-    if (response.data.status_code === 200) {
-      ElMessage.success('删除成功')
-      deleteDialogVisible.value = false
-      await fetchKnowledges() // 刷新列表
-    } else {
-      ElMessage.error('删除失败: ' + response.data.status_message)
-    }
-  } catch (error: any) {
-    console.error('删除知识库失败:', error)
-    ElMessage.error('删除失败')
-  } finally {
-    deleteLoading.value = false
-  }
-}
-
-// 取消删除
-const cancelDelete = () => {
-  deleteDialogVisible.value = false
-  knowledgeToDelete.value = null
-}
-
-// 格式化时间
-const formatTime = (timeStr: string) => {
-  if (!timeStr) return '-'
-  return new Date(timeStr).toLocaleDateString('zh-CN')
-}
-
-// 跳转到文件管理页面
-const goToFileManagement = (knowledge: KnowledgeListType) => {
-  router.push({
-    name: 'knowledge-file',
-    params: { knowledgeId: knowledge.id },
-    query: { name: knowledge.name }
-  })
-}
-
-// 打开创建知识库对话框
-const openCreateDialog = () => {
-  createDialogVisible.value = true
-  resetCreateForm()
-}
-
-// 重置创建表单
-const resetCreateForm = () => {
-  createForm.value = {
-    knowledge_name: '',
-    knowledge_desc: ''
-  }
-}
-
-// 创建知识库
-const handleCreate = async () => {
-  const name = createForm.value.knowledge_name.trim()
-  const desc = createForm.value.knowledge_desc.trim()
-  
-  if (!name) {
-    ElMessage.error('请输入知识库名称')
-    return
-  }
-  
-  if (name.length < 2 || name.length > 10) {
-    ElMessage.error('知识库名称长度必须在2-10个字符之间')
-    return
-  }
-  
-  if (desc && (desc.length < 10 || desc.length > 200)) {
-    ElMessage.error('知识库描述长度必须在10-200个字符之间')
-    return
-  }
-  
-  createLoading.value = true
-  try {
-    const response = await createKnowledgeAPI(createForm.value)
-    if (response.data.status_code === 200) {
-      ElMessage.success('创建成功')
-      createDialogVisible.value = false
-      await fetchKnowledges() // 刷新列表
-    } else {
-      ElMessage.error('创建失败: ' + response.data.status_message)
-    }
+    const res = await getRagDocumentContentAPI(doc.file_hash)
+    console.log('获取文档内容响应:', res)
+    // 后端返回结构：{ code, message, data: { full_content: string, ... } }
+    const payload: any = res.data
+    const fullContent = payload?.data?.full_content
+    documentContent.value = typeof fullContent === 'string' ? fullContent : ''
   } catch (error) {
-    console.error('创建知识库失败:', error)
-    ElMessage.error('创建失败')
+    console.error('获取文档内容失败:', error)
+    ElMessage.error('获取文档内容失败')
   } finally {
-    createLoading.value = false
+    documentContentLoading.value = false
   }
 }
-
-// 打开编辑知识库对话框
-const openEditDialog = (knowledge: KnowledgeListType) => {
-  currentEditKnowledge.value = knowledge
-  editForm.value = {
-    knowledge_id: knowledge.id,
-    knowledge_name: knowledge.name,
-    knowledge_desc: knowledge.description || ''
-  }
-  editDialogVisible.value = true
-}
-
-// 重置编辑表单
-const resetEditForm = () => {
-  editForm.value = {
-    knowledge_id: '',
-    knowledge_name: '',
-    knowledge_desc: ''
-  }
-  currentEditKnowledge.value = null
-}
-
-// 编辑知识库
-const handleEdit = async () => {
-  const name = editForm.value.knowledge_name.trim()
-  const desc = editForm.value.knowledge_desc.trim()
-  
-  if (!name) {
-    ElMessage.error('请输入知识库名称')
-    return
-  }
-  
-  if (name.length < 2 || name.length > 10) {
-    ElMessage.error('知识库名称长度必须在2-10个字符之间')
-    return
-  }
-  
-  if (desc && (desc.length < 10 || desc.length > 200)) {
-    ElMessage.error('知识库描述长度必须在10-200个字符之间')
-    return
-  }
-  
-  editLoading.value = true
-  try {
-    const updateData: KnowledgeUpdateRequest = {
-      knowledge_id: editForm.value.knowledge_id,
-      knowledge_name: editForm.value.knowledge_name,
-      knowledge_desc: editForm.value.knowledge_desc
-    }
-    
-    const response = await updateKnowledgeAPI(updateData)
-    if (response.data.status_code === 200) {
-      ElMessage.success('更新成功')
-      editDialogVisible.value = false
-      await fetchKnowledges() // 刷新列表
-    } else {
-      ElMessage.error('更新失败: ' + response.data.status_message)
-    }
-  } catch (error) {
-    console.error('更新知识库失败:', error)
-    ElMessage.error('更新失败')
-  } finally {
-    editLoading.value = false
-  }
-}
-
-
 
 onMounted(() => {
-  fetchKnowledges()
+  handleGetDocuments()
 })
 </script>
 
@@ -261,249 +224,98 @@ onMounted(() => {
         <h2>知识库管理</h2>
       </div>
       <div class="header-actions">
-        <el-button type="primary" :icon="Plus" @click="openCreateDialog">
-          创建知识库
+        <el-button type="primary" plain @click="handleToggleSearch">
+          查询文档
         </el-button>
-      </div>
-    </div>
+        <template v-if="searchVisible">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="请输入文档名称"
+            style="margin-left: 12px; width: 220px;"
+            clearable
+            size="small"
+          />
+          <el-button type="primary" size="small" @click="handleSearchConfirm" style="margin-left: 8px;">
+            确认
+          </el-button>
+        </template>
+        <el-button type="success" @click="handleGetDocuments" style="margin-left: 12px;">
+          获取文档
+        </el-button>
+        <el-button type="primary" :loading="uploading" @click="handleClickUpload" style="margin-left: 12px;">
+          上传文档
+        </el-button>
+        
+        <el-button type="primary" plain :loading="batchUploading" @click="handleClickBatchUpload" style="margin-left: 12px;">
+          批量上传（ZIP）
+        </el-button>
 
-    <div class="knowledge-container" v-loading="loading">
-      <!-- 列表头部 -->
-      <div class="list-header" v-if="knowledges.length > 0">
-        <div class="col-name">
-          <el-icon><Folder /></el-icon>
-          <span>名称</span>
-        </div>
-        <div class="col-desc">
-          <el-icon><Document /></el-icon>
-          <span>描述</span>
-        </div>
-        <div class="col-files">
-          <el-icon><Document /></el-icon>
-          <span>文件数</span>
-        </div>
-        <div class="col-size">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-1 6h-3v3h-2v-3h-3v-2h3V7h2v3h3v2z" fill="currentColor"/>
-          </svg>
-          <span>存储大小</span>
-        </div>
-        <div class="col-time">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z" fill="currentColor"/>
-          </svg>
-          <span>创建时间</span>
-        </div>
-        <div class="col-actions">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/>
-          </svg>
-          <span>操作</span>
-        </div>
-      </div>
-      
-      <!-- 列表内容 -->
-      <div class="knowledge-list" v-if="knowledges.length > 0">
-        <div 
-          v-for="knowledge in knowledges" 
-          :key="knowledge.id" 
-          class="knowledge-row"
-          @click="goToFileManagement(knowledge)"
+        <el-button
+          type="danger"
+          plain
+          :loading="deleting"
+          :disabled="!selectedDocument"
+          @click="handleDeleteDocument"
+          style="margin-left: 12px;"
         >
-          <div class="col-name">
-            <div class="knowledge-info">
-              <div class="knowledge-avatar">
-                <img :src="knowledgeIcon" alt="Knowledge" />
-              </div>
-              <span class="knowledge-name">{{ knowledge.name }}</span>
-            </div>
-          </div>
-          <div class="col-desc">
-            <span class="knowledge-desc">{{ knowledge.description || '-' }}</span>
-          </div>
-          <div class="col-files">
-            <span class="file-badge">
-              <el-icon><Document /></el-icon>
-              {{ knowledge.count }}
-            </span>
-          </div>
-          <div class="col-size">
-            <span class="size-text">{{ knowledge.file_size }}</span>
-          </div>
-          <div class="col-time">
-            <span class="time-text">{{ formatTime(knowledge.create_time) }}</span>
-          </div>
-          <div class="col-actions" @click.stop>
-            <el-tooltip content="管理文件" placement="top">
-              <button class="action-btn view-btn" @click.stop="goToFileManagement(knowledge)">
-                <el-icon><Folder /></el-icon>
-              </button>
-            </el-tooltip>
-            <el-tooltip content="编辑" placement="top">
-              <button class="action-btn edit-btn" @click.stop="openEditDialog(knowledge)">
-                <el-icon><Edit /></el-icon>
-              </button>
-            </el-tooltip>
-            <el-tooltip content="删除" placement="top">
-              <button class="action-btn delete-btn" @click.stop="handleDelete(knowledge)">
-                <el-icon><Delete /></el-icon>
-              </button>
-            </el-tooltip>
-          </div>
-        </div>
-      </div>
-      
-      <div v-if="knowledges.length === 0 && !loading" class="empty-state">
-        <div class="empty-icon">
-          <img :src="knowledgeIcon" alt="知识库" class="empty-icon-img" />
-        </div>
-        <h3>暂无知识库</h3>
-        <p>您可以创建知识库来存储和管理您的文档资料</p>
-        <el-button type="primary" @click="createDialogVisible = true" class="create-btn">
-          创建知识库
+          删除文档
         </el-button>
+        <!-- 隐藏的原生文件选择框 -->
+        <input
+          ref="fileInputRef"
+          type="file"
+          style="display: none;"
+          @change="handleFileChange"
+        />
+        <input
+          ref="batchFileInputRef"
+          type="file"
+          accept=".zip"
+          style="display: none;"
+          @change="handleBatchFileChange"
+        />
       </div>
     </div>
+    <div class="documents-wrapper">
+      <!-- 左侧文档列表 -->
+      <div class="documents-list" v-loading="documentsLoading">
+        <div v-if="documents.length === 0" class="empty-documents">
+          暂无文档
+        </div>
+        <ul v-else>
+          <li
+            v-for="doc in filteredDocuments"
+            :key="doc.file_hash"
+            :class="['document-item', { active: selectedDocument && selectedDocument.file_hash === doc.file_hash }]"
+            @click="handleSelectDocument(doc)"
+          >
+            <div class="doc-name">{{ doc.file_name }}</div>
+            <div class="doc-meta">{{ doc.chunks_count }} 个分片</div>
+          </li>
+        </ul>
+      </div>
 
-    <!-- 创建知识库对话框 -->
-    <div v-if="createDialogVisible" class="dialog-overlay">
-      <div class="dialog-container">
-        <div class="dialog-header">
-          <h3>创建知识库</h3>
-          <button class="close-btn" @click="createDialogVisible = false">×</button>
+      <!-- 右侧文档内容/详情 -->
+      <div class="document-detail" v-if="selectedDocument">
+        <!-- <h3 class="detail-title">{{ selectedDocument.file_name }}</h3> -->
+        <!-- <p class="detail-meta">
+          文件哈希：{{ selectedDocument.file_hash }}<br />
+          分片数：{{ selectedDocument.chunks_count }}<br />
+          上传时间：{{ selectedDocument.uploaded_at || '未知' }}
+        </p> -->
+        <div class="detail-content">
+          <div v-if="documentContentLoading" class="detail-loading">正在加载文档内容...</div>
+          <pre v-else>{{ documentContent }}</pre>
         </div>
-        
-        <div class="dialog-body">
-          <div class="form-item">
-            <label>知识库名称 <span style="color: red;">*</span></label>
-            <div class="input-with-count">
-              <input 
-                v-model="createForm.knowledge_name"
-                type="text" 
-                placeholder="请输入知识库名称（2-10个字符）"
-                maxlength="10"
-                :class="{ 'error': createForm.knowledge_name.length > 0 && (createForm.knowledge_name.length < 2 || createForm.knowledge_name.length > 10) }"
-              />
-              <span class="char-count" :class="{ 'error': createForm.knowledge_name.length < 2 || createForm.knowledge_name.length > 10 }">
-                {{ createForm.knowledge_name.length }}/10
-              </span>
-            </div>
-          </div>
-          
-          <div class="form-item">
-            <label>知识库描述 <span style="color: #909399; font-size: 12px;">(可选，10-200字符)</span></label>
-            <div class="textarea-with-count">
-              <textarea 
-                v-model="createForm.knowledge_desc"
-                placeholder="请输入知识库描述（可选，10-200字符）"
-                rows="4"
-                maxlength="200"
-                :class="{ 'error': createForm.knowledge_desc.length > 0 && (createForm.knowledge_desc.length < 10 || createForm.knowledge_desc.length > 200) }"
-              ></textarea>
-              <span class="char-count" :class="{ 'error': createForm.knowledge_desc.length > 0 && (createForm.knowledge_desc.length < 10 || createForm.knowledge_desc.length > 200) }">
-                {{ createForm.knowledge_desc.length }}/200
-              </span>
-            </div>
-          </div>
-        </div>
-        
-        <div class="dialog-footer">
-          <button @click="createDialogVisible = false">取消</button>
-          <button 
-            class="primary-btn" 
-            :disabled="createLoading" 
-            @click="handleCreate"
-          >
-            {{ createLoading ? '创建中...' : '确定' }}
-          </button>
-        </div>
+        <!-- <p class="detail-placeholder">
+          这里暂时显示文档的基本信息。如果后端提供文档内容接口，可以在这里加载并展示具体内容。
+        </p> -->
+      </div>
+      <div class="document-detail empty" v-else>
+        请选择左侧的文档查看详情
       </div>
     </div>
-
-    <!-- 编辑知识库对话框 -->
-    <div v-if="editDialogVisible" class="dialog-overlay">
-      <div class="dialog-container">
-        <div class="dialog-header">
-          <h3>编辑知识库</h3>
-          <button class="close-btn" @click="editDialogVisible = false; resetEditForm()">×</button>
-        </div>
-        
-        <div class="dialog-body">
-          <div class="form-item">
-            <label>知识库名称 <span style="color: red;">*</span></label>
-            <div class="input-with-count">
-              <input 
-                v-model="editForm.knowledge_name"
-                type="text" 
-                placeholder="请输入知识库名称（2-10个字符）"
-                maxlength="10"
-                :class="{ 'error': editForm.knowledge_name.length > 0 && (editForm.knowledge_name.length < 2 || editForm.knowledge_name.length > 10) }"
-              />
-              <span class="char-count" :class="{ 'error': editForm.knowledge_name.length < 2 || editForm.knowledge_name.length > 10 }">
-                {{ editForm.knowledge_name.length }}/10
-              </span>
-            </div>
-          </div>
-          
-          <div class="form-item">
-            <label>知识库描述 <span style="color: #909399; font-size: 12px;">(可选，10-200字符)</span></label>
-            <div class="textarea-with-count">
-              <textarea 
-                v-model="editForm.knowledge_desc"
-                placeholder="请输入知识库描述（可选，10-200字符）"
-                rows="4"
-                maxlength="200"
-                :class="{ 'error': editForm.knowledge_desc.length > 0 && (editForm.knowledge_desc.length < 10 || editForm.knowledge_desc.length > 200) }"
-              ></textarea>
-              <span class="char-count" :class="{ 'error': editForm.knowledge_desc.length > 0 && (editForm.knowledge_desc.length < 10 || editForm.knowledge_desc.length > 200) }">
-                {{ editForm.knowledge_desc.length }}/200
-              </span>
-            </div>
-          </div>
-        </div>
-        
-        <div class="dialog-footer">
-          <button @click="editDialogVisible = false; resetEditForm()">取消</button>
-          <button 
-            class="primary-btn" 
-            :disabled="editLoading" 
-            @click="handleEdit"
-          >
-            {{ editLoading ? '更新中...' : '确定' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 删除确认对话框 -->
-    <div v-if="deleteDialogVisible" class="dialog-overlay" @click="cancelDelete">
-      <div class="delete-dialog-container" @click.stop>
-        <!-- 对话框主体 -->
-        <div class="delete-dialog-body">
-          <p v-if="knowledgeToDelete">
-            确定要删除知识库 <strong>"{{ knowledgeToDelete.name }}"</strong> 吗？删除后无法恢复。
-          </p>
-        </div>
-        
-        <!-- 对话框底部 -->
-        <div class="delete-dialog-footer">
-          <button 
-            class="delete-dialog-btn cancel-btn" 
-            @click="cancelDelete"
-            :disabled="deleteLoading"
-          >
-            取消
-          </button>
-          <button 
-            class="delete-dialog-btn confirm-btn" 
-            :disabled="deleteLoading"
-            @click="confirmDelete"
-          >
-            {{ deleteLoading ? '删除中...' : '确认删除' }}
-          </button>
-        </div>
-      </div>
-    </div>
+ 
   </div>
 </template>
 
@@ -739,6 +551,99 @@ onMounted(() => {
       }
     }
   }
+}
+
+.documents-wrapper {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  height: calc(100vh - 160px);
+}
+
+.documents-list {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.documents-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.document-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  margin-bottom: 6px;
+}
+
+.document-item:hover {
+  background: #f3f4f6;
+}
+
+.document-item.active {
+  background: #e0f2fe;
+  box-shadow: 0 0 0 1px #38bdf8;
+}
+
+.doc-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.doc-meta {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.empty-documents {
+  font-size: 13px;
+  color: #9ca3af;
+  text-align: center;
+  padding: 24px 0;
+}
+
+.document-detail {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.document-detail.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.detail-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.detail-meta {
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.6;
+}
+
+.detail-placeholder {
+  margin-top: 16px;
+  font-size: 14px;
+  color: #4b5563;
 }
 
 /* 原生对话框样式 */

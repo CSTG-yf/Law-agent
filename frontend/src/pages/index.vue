@@ -293,14 +293,14 @@ watch(
                 <span>模型</span>
               </template>
             </el-menu-item>
-            <el-menu-item index="dashboard" @click="goCurrent('dashboard')">
+            <!-- <el-menu-item index="dashboard" @click="goCurrent('dashboard')">
               <template #title>
                 <el-icon>
                   <img src="../assets/dashboard.svg" width="22px" height="22px" />
                 </el-icon>
                 <span>数据看板</span>
               </template>
-            </el-menu-item>
+            </el-menu-item> -->
           </el-menu>
           
           <!-- 底部帮助链接 -->
