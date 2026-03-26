@@ -6,7 +6,7 @@ class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"] = Field(..., description="消息角色")
     content: str = Field(..., description="消息内容")
     timestamp: Optional[str] = Field(None, description="消息时间戳")
-    sources: Optional[List[dict]] = Field(None, description="引用来源（仅assistant消息）")
+    sources: List[dict] = Field(default_factory=list, description="引用来源（仅assistant消息）")
 
 
 class RAGConfig(BaseModel):
@@ -44,7 +44,7 @@ class ChatResponse(BaseModel):
     role: Literal["assistant"] = Field("assistant", description="消息角色")
     content: str = Field(..., description="回复内容")
     timestamp: str = Field(..., description="回复时间戳")
-    sources: Optional[List[dict]] = Field(None, description="引用来源（如果使用RAG）")
+    sources: List[dict] = Field(default_factory=list, description="引用来源（如果使用RAG）")
     rag_used: bool = Field(False, description="是否使用了RAG")
     retrieval_strategy: Optional[str] = Field(None, description="使用的检索策略")
     tools_used: Optional[List[str]] = Field(None, description="使用的工具列表")

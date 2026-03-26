@@ -146,13 +146,13 @@ async def send_message(request: ChatRequest):
                         "role": "user",
                         "content": user_msg,
                         "timestamp": datetime.now().isoformat(),
-                        "sources": None
+                        "sources": []
                     })
                     _sessions[session_id]["messages"].append({
                         "role": "assistant",
                         "content": assistant_msg,
                         "timestamp": datetime.now().isoformat(),
-                        "sources": None
+                        "sources": []
                     })
                     logger.info(f"更新会话标题和消息 - session_id: {session_id}, title: {generated_title}")
                 return generated_title
@@ -168,7 +168,7 @@ async def send_message(request: ChatRequest):
                 message_id=message_id,
                 session_id=session_id,
                 role="assistant",
-                sources=None,
+                sources=[],
                 retrieval_metadata=None,
                 title=title,
                 user_message=request.message,
@@ -228,14 +228,14 @@ async def send_message(request: ChatRequest):
                         "role": "user",
                         "content": msg.content,
                         "timestamp": datetime.now().isoformat(),
-                        "sources": None
+                        "sources": []
                     })
                 elif isinstance(msg, AIMessage):
                     session["messages"].append({
                         "role": "assistant",
                         "content": msg.content,
                         "timestamp": datetime.now().isoformat(),
-                        "sources": sources if sources else None
+                        "sources": sources if sources else []
                     })
 
             if session.get("title") is None:
@@ -248,7 +248,7 @@ async def send_message(request: ChatRequest):
                 role="assistant",
                 content=content,
                 timestamp=datetime.now().isoformat(),
-                sources=sources if sources else None,
+                sources=sources if sources else [],
                 rag_used=request.use_rag,
                 retrieval_strategy=request.retrieval_strategy if request.use_rag else None,
                 tools_used=tools_used if tools_used else None,
