@@ -100,6 +100,8 @@ const openCreateSession = async () => {
   showToolSelector.value = false
   showMcpSelector.value = false
   selectedSession.value = ''
+  messages.value = []
+  fetchSessions()
 }
 
 // 获取对话列表
@@ -600,29 +602,9 @@ watch(
     <!-- 右侧主体区域 -->
     <div class="content">
       <div class="chat-page" :class="{ 'chat-active': messages.length > 0 }">
-        <div class="chat-container">
-          <!-- 欢迎区域（有对话时隐藏） -->
-          <div v-if="messages.length === 0" class="welcome-section">
-            <div class="avatar-wrapper">
-              <img src="../../assets/robot.svg" alt="智言" class="avatar" />
-            </div>
-            <h1 class="welcome-title">我是智言小助手，很高兴见到你！</h1>
-            <p class="welcome-subtitle">
-              欢迎体验智言灵寻LingSeek，一位懂得完成复杂任务的Agent助理~
-            </p>
-          </div>
-
-          <!-- 模式选择（有对话时隐藏） -->
-          <!-- <div v-if="messages.length === 0" class="mode-selector">
-            <button v-for="mode in modes" :key="mode.id" :class="['mode-btn', { active: selectedMode === mode.id }]"
-              @click="selectMode(mode.id)">
-              <span class="mode-icon">{{ mode.icon }}</span>
-              <span class="mode-label">{{ mode.label }}</span>
-            </button>
-          </div> -->
-
-          <!-- 对话历史（有对话时显示在上方） -->
-          <div v-if="messages.length > 0" class="chat-conversation" ref="chatConversationRef">
+        <!-- 对话内容容器 - 占据剩余空间并支持滚动 -->
+        <div v-if="messages.length > 0" class="chat-conversation-container">
+          <div class="chat-conversation" ref="chatConversationRef">
             <div v-for="(msg, idx) in messages" :key="idx" class="message-group">
               <!-- User Message -->
               <div v-if="msg.role === 'user'" class="user-message">
@@ -681,9 +663,23 @@ watch(
               </div>
             </div>
           </div>
+        </div>
 
-          <!-- 输入区域（固定在底部） -->
-          <div class="input-section" :class="{ 'input-fixed': messages.length > 0 }">
+        <!-- 底部区域（包含欢迎界面和输入框） -->
+        <div class="bottom-section">
+          <!-- 欢迎界面（无对话时显示） -->
+          <div v-if="messages.length === 0" class="welcome-section">
+            <div class="avatar-wrapper">
+              <img src="../../assets/robot.svg" alt="智言" class="avatar" />
+            </div>
+            <h1 class="welcome-title">我是智言小助手，很高兴见到你！</h1>
+            <p class="welcome-subtitle">
+              欢迎体验智言灵寻 LingSeek，一位懂得完成复杂任务的 Agent 助理~
+            </p>
+          </div>
+
+          <!-- 输入区域（始终在底部） -->
+          <div class="input-section">
             <div class="input-wrapper">
               <textarea v-model="inputMessage" placeholder="给智言发消息，让智言帮你完成任务~" class="message-input" rows="4"
                 @keydown="handleKeydown"></textarea>
@@ -778,6 +774,9 @@ watch(
   display: flex;
   height: calc(100vh - 60px);
   background-color: #ffffff;
+
+  /* 禁止根节点产生全局滚动，滚动仅在对话内容区出现 */
+  overflow: hidden;
 
   .sidebar {
     height: 100%;
@@ -1039,50 +1038,90 @@ watch(
 
   .content {
     flex: 1;
+    height: 100%;
     background-color: #ffffff;
     border-radius: 0;
     margin: 0;
     box-shadow: none;
     border-left: 1px solid #e9ecef;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 
     .chat-page {
       width: 100%;
       height: 100%;
       display: flex;
-      align-items: flex-start;
-      justify-content: center;
+      flex-direction: column;
       background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);
-      padding: 0;
-      overflow-y: auto;
+      overflow: hidden;
+      flex: 1;
 
       &.chat-active {
-        padding: 0;
-        overflow: hidden;
         background-color: #f7f8fa;
       }
     }
 
-    .chat-container {
-      max-width: 820px;
+    .chat-conversation-container {
+      flex: 1;
+      min-height: 0;
+      /* 只在对话区域出现滚动条 */
+      overflow-y: auto;
+      overflow-x: hidden;
+      background-color: #f7f8fa;
+      /* 为左右两侧保留空隙，且使用 box-sizing 避免宽度溢出 */
+      padding: 18px 16px;
+      box-sizing: border-box;
+
+      &::-webkit-scrollbar {
+        width: 6px;
+        position: absolute;
+        right: 0;
+      }
+
+      &::-webkit-scrollbar-track {
+        background: transparent;
+        margin: 4px 0;
+      }
+
+      &::-webkit-scrollbar-thumb {
+        background: rgba(193, 199, 208, 0.6);
+        border-radius: 3px;
+
+        &:hover {
+          background: rgba(168, 176, 188, 0.8);
+        }
+      }
+    }
+
+    .chat-conversation {
       width: 100%;
+      max-width: 100%;
+      margin: 0;
+      /* 消息内容由外层容器提供左右间距，这里保持较小内边距以避免重复 */
+      padding: 0 8px 10px;
+
+      @media (min-width: 769px) {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 12px 15px;
+      }
+    }
+
+    .bottom-section {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      padding: 60px 20px 40px;
-
-      .chat-active & {
-        max-width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        padding: 0;
-      }
+      justify-content: flex-end;
+      background-color: #f7f8fa;
+      padding: 0;
+      border-top: 1px solid #e9ecef;
+      flex-shrink: 0;
+      width: 100%;
     }
 
     .welcome-section {
       text-align: center;
-      margin-bottom: 40px;
+      padding: 60px 20px;
       animation: fadeInUp 0.6s ease;
 
       .avatar-wrapper {
@@ -1255,49 +1294,37 @@ watch(
 
     .input-section {
       width: 100%;
-      max-width: 800px;
+      max-width: 100%;
+      margin: 0;
+      padding: 10px;
       animation: fadeInUp 0.6s ease 0.2s both;
-
-      &.input-fixed {
-        max-width: 100%;
-        padding: 10px 20px 20px 20px;
-        background: #f7f8fa;
-        animation: none;
-
-        .input-wrapper {
-          max-width: 900px;
-          margin: 0 auto;
-        }
+      
+      // 响应式适配
+      @media (min-width: 769px) {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 15px;
       }
 
       .input-wrapper {
         background: #ffffff;
         border: 2px solid #e5e7eb;
-        border-radius: 20px;
-        padding: 16px 20px;
+        border-radius: 16px;
+        padding: 12px 16px;
         transition: all 0.3s ease;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
         position: relative;
         z-index: 1;
-
-        &.lingseek-glow {
-          border-color: rgba(102, 126, 234, 0.35);
-          box-shadow:
-            0 0 0 2px rgba(102, 126, 234, 0.12),
-            0 0 16px 6px rgba(102, 126, 234, 0.14);
-          animation: lingseek-breath 2.8s ease-in-out infinite;
-
-          &:focus-within {
-            border-color: rgba(102, 126, 234, 0.55);
-            animation: lingseek-breath-strong 2.2s ease-in-out infinite;
-            transform: translateY(-2px);
-          }
+        
+        // 响应式适配
+        @media (max-width: 768px) {
+          padding: 10px 12px;
+          border-radius: 12px;
         }
 
         &:focus-within {
           border-color: #667eea;
           box-shadow: 0 6px 24px rgba(102, 126, 234, 0.15);
-          transform: translateY(-2px);
         }
 
         .message-input {
@@ -1776,19 +1803,17 @@ watch(
     }
 
     .chat-conversation {
-      flex: 1;
-      padding: 0;
-      overflow-y: auto;
       width: 100%;
-      background-color: #f7f8fa;
       scroll-behavior: smooth; // 平滑滚动
 
       .message-group {
+        width: 100%;
         margin-bottom: 20px;
-        padding: 0 20px;
+        /* 移除单独的宽边距，使用父容器的 padding 保持统一间距 */
+        padding: 0;
 
         &:first-child {
-          padding-top: 20px;
+          padding-top: 6px;
         }
       }
 
