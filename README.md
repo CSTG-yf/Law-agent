@@ -70,6 +70,11 @@ backend/
 │   └── import/               # 数据导入文件
 ├── backend/chroma_data/      # Chroma 向量数据库数据目录（Docker 挂载点）
 ├── backend/uploads/          # 上传文件存储目录
+├── backend/logs/              # 应用日志目录
+│   ├── app.log               # 应用主日志
+│   ├── error.log             # 错误日志
+│   ├── celery.log            # Celery任务日志
+│   └── celery_error.log      # Celery错误日志
 ├── data/                     # 存放法律文档模板文件
 ├── docs/                     # 存放 API 文档（如 Swagger/OpenAPI）
 └── tests/                    # 存放单元测试代码

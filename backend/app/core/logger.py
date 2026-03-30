@@ -165,3 +165,51 @@ class APILogger:
 
 
 api_logger = APILogger()
+
+
+def setup_celery_logging():
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
+    
+    formatter = logging.Formatter(log_format, datefmt=date_format)
+    
+    celery_logger = logging.getLogger("celery")
+    celery_logger.setLevel(logging.INFO)
+    
+    if celery_logger.handlers:
+        celery_logger.handlers.clear()
+    
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    celery_logger.addHandler(console_handler)
+    
+    file_handler = RotatingFileHandler(
+        log_dir / "celery.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8"
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    celery_logger.addHandler(file_handler)
+    
+    error_handler = RotatingFileHandler(
+        log_dir / "celery_error.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8"
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(formatter)
+    celery_logger.addHandler(error_handler)
+    
+    celery_task_logger = logging.getLogger("celery.task")
+    celery_task_logger.setLevel(logging.INFO)
+    celery_task_logger.addHandler(file_handler)
+    celery_task_logger.addHandler(error_handler)
+    
+    return celery_logger

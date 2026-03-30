@@ -1,5 +1,8 @@
 from celery import Celery
 from app.core.config import settings
+from app.core.logger import setup_celery_logging
+
+setup_celery_logging()
 
 celery_app = Celery(
     "legal_rag_tasks",
