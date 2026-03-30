@@ -86,6 +86,12 @@ class SlotExtractor:
 - agent.job: 代理人职务
 - agent.phone: 代理人电话
 - agent.auth: 授权类型（一般/特别）
+
+重要提示：
+- 如果用户说"没有"、"不"、"无"、"不需要"等否定词,agent.has_agent 应该设置为 false
+- 如果用户明确说"有"或提供了代理人信息,agent.has_agent 应该设置为 true
+- agent.has_agent 是一个布尔值槽位,如果提取到该值,置信度应该为 1.0
+- 对于 agent.has_agent 槽位,一旦提取到值,应该视为已确认(confirmed=true)
 """,
             "service": """
 当前业务块：送达地址

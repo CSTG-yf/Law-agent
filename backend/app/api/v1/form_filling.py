@@ -91,7 +91,94 @@ async def send_message(request: SendMessageRequest):
         conversation_strategy = get_conversation_strategy()
         user_intent = conversation_strategy.handle_user_intent(request.message, state)
 
+        manually_set_slots = {}
         if user_intent:
+            if user_intent == "skip_agent":
+                slot_manager.update_slot(
+                    session_id=request.session_id,
+                    block_id="agent",
+                    slot_name="has_agent",
+                    value=False,
+                    confirmed=True,
+                    source="user_input",
+                    confidence=1.0
+                )
+                manually_set_slots["agent.has_agent"] = False
+                
+                next_block = conversation_strategy._get_next_block(state)
+                if next_block:
+                    success = slot_manager.switch_block(request.session_id, next_block)
+                    if success:
+                        greeting = conversation_strategy.get_greeting_message(next_block)
+                        state = slot_manager.get_session(request.session_id)
+                        all_extracted_slots = {}
+                        for block_id, block_data in state.blocks.items():
+                            for slot_name, slot_status in block_data.slots.items():
+                                if slot_status.value is not None:
+                                    full_slot_name = f"{block_id}.{slot_name}"
+                                    all_extracted_slots[full_slot_name] = slot_status.value
+                        
+                        current_block_data = state.blocks.get(next_block)
+                        current_block_completion_rate = current_block_data.completion_rate if current_block_data else 0.0
+                        
+                        return {
+                            "code": HttpStatus.OK,
+                            "status": "success",
+                            "message": "",
+                            "data": SendMessageResponse(
+                                session_id=request.session_id,
+                                message=greeting,
+                                current_block=next_block,
+                                completion_rate=current_block_completion_rate,
+                                extracted_slots=all_extracted_slots,
+                                needs_clarification=False,
+                                suggested_next_action=None
+                            ).model_dump()
+                        }
+            
+            if user_intent == "skip_preservation":
+                slot_manager.update_slot(
+                    session_id=request.session_id,
+                    block_id="preservation",
+                    slot_name="active",
+                    value=False,
+                    confirmed=True,
+                    source="user_input",
+                    confidence=1.0
+                )
+                manually_set_slots["preservation.active"] = False
+                
+                next_block = conversation_strategy._get_next_block(state)
+                if next_block:
+                    success = slot_manager.switch_block(request.session_id, next_block)
+                    if success:
+                        greeting = conversation_strategy.get_greeting_message(next_block)
+                        state = slot_manager.get_session(request.session_id)
+                        all_extracted_slots = {}
+                        for block_id, block_data in state.blocks.items():
+                            for slot_name, slot_status in block_data.slots.items():
+                                if slot_status.value is not None:
+                                    full_slot_name = f"{block_id}.{slot_name}"
+                                    all_extracted_slots[full_slot_name] = slot_status.value
+                        
+                        current_block_data = state.blocks.get(next_block)
+                        current_block_completion_rate = current_block_data.completion_rate if current_block_data else 0.0
+                        
+                        return {
+                            "code": HttpStatus.OK,
+                            "status": "success",
+                            "message": "",
+                            "data": SendMessageResponse(
+                                session_id=request.session_id,
+                                message=greeting,
+                                current_block=next_block,
+                                completion_rate=current_block_completion_rate,
+                                extracted_slots=all_extracted_slots,
+                                needs_clarification=False,
+                                suggested_next_action=None
+                            ).model_dump()
+                        }
+            
             if user_intent.startswith("switch_to_"):
                 target_block = user_intent.replace("switch_to_", "")
                 
@@ -106,6 +193,7 @@ async def send_message(request: SendMessageRequest):
                             source="user_input",
                             confidence=1.0
                         )
+                        manually_set_slots["agent.has_agent"] = False
                     elif target_block == "preservation":
                         slot_manager.update_slot(
                             session_id=request.session_id,
@@ -116,6 +204,7 @@ async def send_message(request: SendMessageRequest):
                             source="user_input",
                             confidence=1.0
                         )
+                        manually_set_slots["preservation.active"] = False
                 
                 success = slot_manager.switch_block(request.session_id, target_block)
                 if success:
@@ -125,7 +214,7 @@ async def send_message(request: SendMessageRequest):
                     all_extracted_slots = {}
                     for block_id, block_data in state.blocks.items():
                         for slot_name, slot_status in block_data.slots.items():
-                            if slot_status.value:
+                            if slot_status.value is not None:
                                 full_slot_name = f"{block_id}.{slot_name}"
                                 all_extracted_slots[full_slot_name] = slot_status.value
                     
@@ -154,7 +243,7 @@ async def send_message(request: SendMessageRequest):
         known_slots = {}
         for block_id, block_data in state.blocks.items():
             for slot_name, slot_status in block_data.slots.items():
-                if slot_status.value:
+                if slot_status.value is not None:
                     full_slot_name = f"{block_id}.{slot_name}"
                     known_slots[full_slot_name] = slot_status.value
 
@@ -166,18 +255,30 @@ async def send_message(request: SendMessageRequest):
         )
 
         for slot_name, value in extraction_result.extracted_slots.items():
+            if slot_name in manually_set_slots:
+                logger.info(f"跳过手动设置的槽位 - slot_name: {slot_name}, value: {manually_set_slots[slot_name]}")
+                continue
             parts = slot_name.split(".")
             if len(parts) >= 2:
                 block_id = parts[0]
                 slot_name_full = ".".join(parts[1:]) if len(parts) > 2 else parts[1]
+                
+                slot_confidence = extraction_result.confidence
+                slot_confirmed = True
+                
+                if slot_name_full == "has_agent" and isinstance(value, bool):
+                    slot_confidence = 1.0
+                    slot_confirmed = True
+                    logger.info(f"has_agent 槽位强制设置为高置信度 - value: {value}")
+                
                 slot_manager.update_slot(
                     session_id=request.session_id,
                     block_id=block_id,
                     slot_name=slot_name_full,
                     value=value,
-                    confirmed=True,
+                    confirmed=slot_confirmed,
                     source="user_input",
-                    confidence=extraction_result.confidence
+                    confidence=slot_confidence
                 )
 
         next_action = conversation_strategy.generate_next_action(
@@ -190,7 +291,7 @@ async def send_message(request: SendMessageRequest):
         all_extracted_slots = {}
         for block_id, block_data in state.blocks.items():
             for slot_name, slot_status in block_data.slots.items():
-                if slot_status.value:
+                if slot_status.value is not None:
                     full_slot_name = f"{block_id}.{slot_name}"
                     all_extracted_slots[full_slot_name] = slot_status.value
 

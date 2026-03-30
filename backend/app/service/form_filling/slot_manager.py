@@ -269,7 +269,16 @@ class SlotManager:
             ).value != ""
             for slot_name in block_def.required_slots
         )
-        block.is_complete = required_filled and block.completion_rate >= 0.8
+        
+        if block_id == "agent":
+            has_agent_slot = block.slots.get("has_agent")
+            if has_agent_slot and has_agent_slot.value == False:
+                block.is_complete = True
+                block.completion_rate = 1.0
+            else:
+                block.is_complete = required_filled and block.completion_rate >= 0.8
+        else:
+            block.is_complete = required_filled and block.completion_rate >= 0.8
 
         logger.info(f"更新业务块完成度 - session_id: {session.session_id}, block_id: {block_id}, completion_rate: {block.completion_rate:.2f}, is_complete: {block.is_complete}")
 

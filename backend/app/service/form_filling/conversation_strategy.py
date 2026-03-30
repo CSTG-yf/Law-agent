@@ -8,23 +8,23 @@ logger = get_logger("conversation_strategy")
 class ConversationStrategy:
     def __init__(self):
         self.block_greetings = {
-            "plaintiff": "好的，我们先来填写原告信息。请告诉我您的姓名、联系方式和住址。",
-            "agent": "请问您有委托代理人吗？如果有，请告诉我代理人的相关信息。",
-            "service": "接下来请填写法律文书送达地址，这是法院向您送达法律文书的重要信息。",
-            "defendant": "现在请告诉我被告公司的信息，包括公司名称、地址等。",
-            "claims": "现在请告诉我您的诉讼请求，包括您希望被告赔偿哪些费用。",
-            "preservation": "请问您是否需要申请诉前财产保全？",
-            "facts": "最后，请详细描述一下您和被告之间的劳动关系情况，包括入职时间、工作内容、离职原因等。"
+            "plaintiff": "您好！让我们开始填写法律文书。首先，我需要了解您的基本信息，请告诉我您的姓名、联系方式和住址。",
+            "agent": "好的，原告信息已经填写完成。接下来，请问您是否有委托代理人？如果有，请告诉我代理人的相关信息。",
+            "service": "很好！原告和代理人信息都已确认。现在让我们来填写法律文书送达地址，这是法院向您送达法律文书的重要信息。",
+            "defendant": "送达地址已记录。接下来请告诉我被告公司的信息，包括公司名称、地址等。",
+            "claims": "好的，被告信息已填写完成。现在请告诉我您的诉讼请求，包括您希望被告赔偿哪些费用。",
+            "preservation": "了解了。请问您是否需要申请诉前财产保全？",
+            "facts": "好的，诉讼请求已记录。最后，请详细描述一下您和被告之间的劳动关系情况，包括入职时间、工作内容、离职原因等。"
         }
 
         self.block_completion_messages = {
-            "plaintiff": "原告信息已填写完成。",
-            "agent": "代理人信息已填写完成。",
-            "service": "送达地址已填写完成。",
-            "defendant": "被告信息已填写完成。",
-            "claims": "诉讼请求已填写完成。",
-            "preservation": "财产保全信息已填写完成。",
-            "facts": "事实与理由已填写完成。"
+            "plaintiff": "好的，原告信息已填写完成。",
+            "agent": "明白了，代理人信息已确认。",
+            "service": "好的，送达地址已填写完成。",
+            "defendant": "好的，被告信息已填写完成。",
+            "claims": "好的，诉讼请求已填写完成。",
+            "preservation": "好的，财产保全信息已填写完成。",
+            "facts": "好的，事实与理由已填写完成。"
         }
 
     def get_greeting_message(self, block_id: str) -> str:
@@ -93,14 +93,16 @@ class ConversationStrategy:
 
         next_block = self._get_next_block(state)
         if next_block:
+            completion_msg = self.get_completion_message(state.current_block)
+            greeting_msg = self.get_greeting_message(next_block)
             return {
-                "message": f"{self.get_completion_message(state.current_block)} {self.get_greeting_message(next_block)}",
+                "message": f"{completion_msg} {greeting_msg}",
                 "needs_clarification": False,
                 "suggested_next_action": f"switch_to_{next_block}"
             }
 
         return {
-            "message": "所有信息已填写完成！您可以点击生成文档按钮，生成法律文书。",
+            "message": "太好了！所有信息都已填写完成。您可以点击生成文档按钮，生成法律文书。",
             "needs_clarification": False,
             "suggested_next_action": "generate_document"
         }
@@ -213,11 +215,19 @@ class ConversationStrategy:
         user_input_lower = user_input.lower()
 
         if "没有" in user_input or "不" in user_input or "无" in user_input or "不需要" in user_input:
+            if state.current_block == "agent":
+                return "skip_agent"
+            if state.current_block == "preservation":
+                return "skip_preservation"
             next_block = self._get_next_block(state)
             if next_block:
                 return f"switch_to_{next_block}"
 
         if "跳过" in user_input or "skip" in user_input_lower:
+            if state.current_block == "agent":
+                return "skip_agent"
+            if state.current_block == "preservation":
+                return "skip_preservation"
             next_block = self._get_next_block(state)
             if next_block:
                 return f"switch_to_{next_block}"
