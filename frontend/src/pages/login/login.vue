@@ -27,7 +27,7 @@ const handleLogin = async () => {
     
     // response.data结构可能是{status_code: number, data: {...}}
     const responseData = response.data
-    if (responseData.status_code === 200) {
+    if (responseData.code === 200) {
       ElMessage.success('登录成功')
       
       // 使用store管理用户状态
@@ -59,7 +59,7 @@ const handleLogin = async () => {
       // 跳转到主页
       router.push('/')
     } else {
-      ElMessage.error(responseData.status_message || '登录失败')
+      ElMessage.error(responseData.message || '登录失败')
     }
   } catch (error: any) {
     console.error('登录错误:', error)

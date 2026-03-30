@@ -10,8 +10,8 @@
   </style>
 
   <!-- 核心文字：位置均匀分布，清晰显示 -->
-  <text x="25" y="85" class="main-text">智</text>
-  <text x="115" y="85" class="main-text">言</text>
-  <text x="200" y="85" class="main-text">平</text>
-  <text x="285" y="85" class="main-text">台</text>
+  <text x="25" y="85" class="main-text">律</text>
+  <text x="115" y="85" class="main-text">动</text>
+  <text x="200" y="85" class="main-text">AI</text>
+  <!-- <text x="285" y="85" class="main-text">台</text> -->
 </svg>

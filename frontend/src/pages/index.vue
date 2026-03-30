@@ -176,7 +176,7 @@ watch(
           <img :src="robotIcon" alt="Logo" class="logo" />
         </div>
         <div class="nav-links">
-          <img src="../assets/agentchat.svg" alt="智言平台" class="brand-logo-img" />
+          <img src="../assets/agentchat.svg" alt="律动AI" class="brand-logo-img" />
         </div>
       </div>
       <div class="right">
@@ -221,14 +221,14 @@ watch(
             :default-active="current"
             text-color="#909399"
           >
-            <el-menu-item index="workspace" @click="goCurrent('workspace')">
+            <!-- <el-menu-item index="workspace" @click="goCurrent('workspace')">
               <template #title>
                 <el-icon>
                   <img src="../assets/workspace.svg" width="22px" height="22px" />
                 </el-icon>
                 <span>工作台</span>
               </template>
-            </el-menu-item>
+            </el-menu-item> -->
             <!-- <el-menu-item index="homepage" @click="goCurrent('homepage')">
               <template #title>
                 <el-icon>
