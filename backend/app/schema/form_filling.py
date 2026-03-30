@@ -129,3 +129,28 @@ class ErrorResponse(BaseModel):
     code: int
     status: str
     message: str
+
+
+class SessionListItem(BaseModel):
+    session_id: str
+    template_type: str
+    current_block: str
+    conversation_turn: int
+    created_at: str
+    updated_at: str
+
+
+class SessionListResponse(BaseModel):
+    sessions: List[SessionListItem]
+    total: int
+
+
+class HistoryEntry(BaseModel):
+    role: str
+    message: str
+    timestamp: str
+
+
+class GetHistoryRequest(BaseModel):
+    session_id: str
+    limit: int = 50

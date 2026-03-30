@@ -6,17 +6,39 @@ from app.schema.form_filling import (
     BlockDefinition,
     TemplateDefinition
 )
+from app.core.config import settings
 from app.core.logger import get_logger
 import json
 
 logger = get_logger("slot_manager")
 
+SESSION_KEY_PREFIX = "form_filling:session:"
+HISTORY_KEY_PREFIX = "form_filling:history:"
+SESSION_INDEX_KEY = "form_filling:sessions"
+
 
 class SlotManager:
     def __init__(self):
-        self._sessions: Dict[str, FormFillingState] = {}
         self._templates: Dict[str, TemplateDefinition] = {}
         self._load_template_definitions()
+        self._redis = None
+
+    def _get_redis(self):
+        if self._redis is None:
+            import redis
+            self._redis = redis.Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                db=settings.REDIS_DB,
+                decode_responses=False
+            )
+            try:
+                self._redis.ping()
+                logger.info(f"Redis连接成功 - {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+            except Exception as e:
+                logger.error(f"Redis连接失败 - {e}")
+                raise
+        return self._redis
 
     def _load_template_definitions(self):
         self._templates["labor_dispute"] = TemplateDefinition(
@@ -161,6 +183,37 @@ class SlotManager:
         )
         logger.info(f"模板定义加载完成 - total: {len(self._templates)}")
 
+    def _save_session(self, state: FormFillingState):
+        try:
+            redis_client = self._get_redis()
+            key = f"{SESSION_KEY_PREFIX}{state.session_id}"
+            data = state.model_dump()
+            json_str = json.dumps(data, ensure_ascii=False)
+            redis_client.set(key, json_str)
+            logger.info(f"会话已保存到Redis - session_id: {state.session_id}, data_size: {len(json_str)}")
+        except Exception as e:
+            logger.error(f"保存会话到Redis失败 - session_id: {state.session_id}, error: {e}")
+            raise
+
+    def _load_session_from_redis(self, session_id: str) -> Optional[FormFillingState]:
+        redis_client = self._get_redis()
+        key = f"{SESSION_KEY_PREFIX}{session_id}"
+        data = redis_client.get(key)
+        if data is None:
+            return None
+        try:
+            state_dict = json.loads(data)
+            return FormFillingState(**state_dict)
+        except Exception as e:
+            logger.error(f"从Redis加载会话失败 - session_id: {session_id}, error: {e}")
+            return None
+
+    def _delete_session_from_redis(self, session_id: str) -> bool:
+        redis_client = self._get_redis()
+        key = f"{SESSION_KEY_PREFIX}{session_id}"
+        result = redis_client.delete(key)
+        return result > 0
+
     def create_session(self, template_type: str = "labor_dispute") -> FormFillingState:
         session_id = f"filling-{template_type}-{self._generate_id()}"
         
@@ -172,8 +225,8 @@ class SlotManager:
         for block_def in template.blocks:
             slots = {}
             for slot_name in block_def.slots:
-                parts = slot_name.split(".")
-                slot_key = parts[1] if len(parts) > 1 else slot_name
+                parts = slot_name.split(".", 1)
+                slot_key = parts[1] if len(parts) == 2 else slot_name
                 slots[slot_key] = SlotStatus(
                     value=None,
                     confirmed=False,
@@ -198,12 +251,12 @@ class SlotManager:
             current_block=template.blocks[0].block_id
         )
 
-        self._sessions[session_id] = state
+        self._save_session(state)
         logger.info(f"创建填充会话 - session_id: {session_id}, template: {template_type}")
         return state
 
     def get_session(self, session_id: str) -> Optional[FormFillingState]:
-        return self._sessions.get(session_id)
+        return self._load_session_from_redis(session_id)
 
     def update_slot(
         self,
@@ -240,6 +293,7 @@ class SlotManager:
         self._update_block_completion(session, block_id)
         session.updated_at = self._get_current_timestamp()
         
+        self._save_session(session)
         logger.info(f"更新槽位 - session_id: {session_id}, block_id: {block_id}, slot_name: {slot_name}, value: {value}")
         return True
 
@@ -260,11 +314,11 @@ class SlotManager:
 
         required_filled = all(
             block.slots.get(
-                slot_name.split(".")[1] if "." in slot_name else slot_name,
+                slot_name.split(".", 1)[1] if "." in slot_name else slot_name,
                 SlotStatus()
             ).value is not None 
             and block.slots.get(
-                slot_name.split(".")[1] if "." in slot_name else slot_name,
+                slot_name.split(".", 1)[1] if "." in slot_name else slot_name,
                 SlotStatus()
             ).value != ""
             for slot_name in block_def.required_slots
@@ -301,7 +355,7 @@ class SlotManager:
 
         missing = []
         for slot_name in block_def.required_slots:
-            slot_key = slot_name.split(".")[1] if "." in slot_name else slot_name
+            slot_key = slot_name.split(".", 1)[1] if "." in slot_name else slot_name
             slot = block.slots.get(slot_key)
             if not slot or not slot.value or slot.value == "":
                 missing.append(slot_name)
@@ -339,6 +393,7 @@ class SlotManager:
         session.current_block = target_block_id
         session.updated_at = self._get_current_timestamp()
         
+        self._save_session(session)
         logger.info(f"切换业务块 - session_id: {session_id}, target_block: {target_block_id}")
         return True
 
@@ -397,12 +452,54 @@ class SlotManager:
     def get_template_definition(self, template_type: str) -> Optional[TemplateDefinition]:
         return self._templates.get(template_type)
 
+    def save_conversation_history(self, session_id: str, role: str, message: str):
+        redis_client = self._get_redis()
+        key = f"{HISTORY_KEY_PREFIX}{session_id}"
+        entry = json.dumps({"role": role, "message": message, "timestamp": self._get_current_timestamp()}, ensure_ascii=False)
+        redis_client.rpush(key, entry)
+        logger.info(f"保存对话历史 - session_id: {session_id}, role: {role}")
+
+    def get_conversation_history(self, session_id: str, limit: int = 50) -> List[Dict]:
+        redis_client = self._get_redis()
+        key = f"{HISTORY_KEY_PREFIX}{session_id}"
+        raw_entries = redis_client.lrange(key, -limit, -1)
+        history = []
+        for entry in raw_entries:
+            try:
+                history.append(json.loads(entry))
+            except Exception:
+                continue
+        return history
+
+    def get_session_list(self) -> List[Dict]:
+        redis_client = self._get_redis()
+        session_keys = redis_client.keys(f"{SESSION_KEY_PREFIX}*")
+        sessions = []
+        for key in session_keys:
+            try:
+                data = redis_client.get(key)
+                if data:
+                    state_dict = json.loads(data)
+                    sessions.append({
+                        "session_id": state_dict.get("session_id", ""),
+                        "template_type": state_dict.get("template_type", ""),
+                        "current_block": state_dict.get("current_block", ""),
+                        "conversation_turn": state_dict.get("conversation_turn", 0),
+                        "created_at": state_dict.get("created_at", ""),
+                        "updated_at": state_dict.get("updated_at", ""),
+                    })
+            except Exception:
+                continue
+        sessions.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        return sessions
+
     def delete_session(self, session_id: str) -> bool:
-        if session_id in self._sessions:
-            del self._sessions[session_id]
+        result = self._delete_session_from_redis(session_id)
+        if result:
+            redis_client = self._get_redis()
+            redis_client.delete(f"{HISTORY_KEY_PREFIX}{session_id}")
             logger.info(f"删除会话 - session_id: {session_id}")
-            return True
-        return False
+        return result
 
     def _generate_id(self) -> str:
         import uuid

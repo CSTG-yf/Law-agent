@@ -12,7 +12,10 @@ from app.schema.form_filling import (
     UpdateSlotResponse,
     GenerateDocumentRequest,
     GenerateDocumentResponse,
-    ErrorResponse
+    ErrorResponse,
+    SessionListItem,
+    GetHistoryRequest,
+    HistoryEntry
 )
 from app.service.form_filling.slot_manager import get_slot_manager
 from app.service.form_filling.slot_extractor import get_slot_extractor
@@ -54,6 +57,8 @@ async def start_filling(request: StartFillingRequest):
             blocks=template_def.blocks,
             message=f"欢迎使用正确车队法律文书智能填写系统！{greeting_message}"
         )
+
+        slot_manager.save_conversation_history(state.session_id, "assistant", response.message)
 
         logger.info(f"文书填写会话创建成功 - session_id: {state.session_id}")
         return {
@@ -120,7 +125,10 @@ async def send_message(request: SendMessageRequest):
                         
                         current_block_data = state.blocks.get(next_block)
                         current_block_completion_rate = current_block_data.completion_rate if current_block_data else 0.0
-                        
+
+                        slot_manager.save_conversation_history(request.session_id, "user", request.message)
+                        slot_manager.save_conversation_history(request.session_id, "assistant", greeting)
+
                         return {
                             "code": HttpStatus.OK,
                             "status": "success",
@@ -163,7 +171,10 @@ async def send_message(request: SendMessageRequest):
                         
                         current_block_data = state.blocks.get(next_block)
                         current_block_completion_rate = current_block_data.completion_rate if current_block_data else 0.0
-                        
+
+                        slot_manager.save_conversation_history(request.session_id, "user", request.message)
+                        slot_manager.save_conversation_history(request.session_id, "assistant", greeting)
+
                         return {
                             "code": HttpStatus.OK,
                             "status": "success",
@@ -182,7 +193,14 @@ async def send_message(request: SendMessageRequest):
             if user_intent.startswith("switch_to_"):
                 target_block = user_intent.replace("switch_to_", "")
                 
-                if "没有" in request.message or "不" in request.message or "无" in request.message or "不需要" in request.message:
+                skip_patterns = ["没有代理人", "没有代理", "无代理人", "无代理", "不需要代理人", "不需要代理", "没有", "不需要", "无"]
+                is_negation = any(p in request.message for p in skip_patterns)
+                if not is_negation:
+                    msg_stripped = request.message.strip()
+                    if msg_stripped.startswith("没有") or msg_stripped.startswith("无") or msg_stripped.startswith("不需要"):
+                        is_negation = True
+                
+                if is_negation:
                     if target_block == "agent":
                         slot_manager.update_slot(
                             session_id=request.session_id,
@@ -220,7 +238,10 @@ async def send_message(request: SendMessageRequest):
                     
                     current_block_data = state.blocks.get(target_block)
                     current_block_completion_rate = current_block_data.completion_rate if current_block_data else 0.0
-                    
+
+                    slot_manager.save_conversation_history(request.session_id, "user", request.message)
+                    slot_manager.save_conversation_history(request.session_id, "assistant", greeting)
+
                     return {
                         "code": HttpStatus.OK,
                         "status": "success",
@@ -258,10 +279,13 @@ async def send_message(request: SendMessageRequest):
             if slot_name in manually_set_slots:
                 logger.info(f"跳过手动设置的槽位 - slot_name: {slot_name}, value: {manually_set_slots[slot_name]}")
                 continue
-            parts = slot_name.split(".")
-            if len(parts) >= 2:
+            if not slot_name.startswith(f"{state.current_block}."):
+                slot_name = f"{state.current_block}.{slot_name}"
+                logger.info(f"自动补全槽位前缀 - slot_name: {slot_name}")
+            parts = slot_name.split(".", 1)
+            if len(parts) == 2:
                 block_id = parts[0]
-                slot_name_full = ".".join(parts[1:]) if len(parts) > 2 else parts[1]
+                slot_name_full = parts[1]
                 
                 slot_confidence = extraction_result.confidence
                 slot_confirmed = True
@@ -318,6 +342,9 @@ async def send_message(request: SendMessageRequest):
             clarification_questions=extraction_result.clarification_questions,
             suggested_next_action=suggested_next_action
         )
+
+        slot_manager.save_conversation_history(request.session_id, "user", request.message)
+        slot_manager.save_conversation_history(request.session_id, "assistant", response.message)
 
         logger.info(f"填写消息处理完成 - session_id: {request.session_id}, completion_rate: {response.completion_rate:.2f}")
         return {
@@ -560,6 +587,71 @@ async def download_document(filename: str):
         raise
     except Exception as e:
         logger.error(f"下载文档失败 - filename: {filename}, error: {str(e)}")
+        raise HTTPException(
+            status_code=HttpStatus.INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.get("/sessions", response_model=dict)
+async def get_session_list():
+    """
+    获取所有填写会话列表
+    """
+    try:
+        logger.info("查询会话列表")
+        slot_manager = get_slot_manager()
+        sessions = slot_manager.get_session_list()
+        session_items = [SessionListItem(**s) for s in sessions]
+        logger.info(f"查询会话列表成功 - total: {len(session_items)}")
+        return {
+            "code": HttpStatus.OK,
+            "status": "success",
+            "message": "",
+            "data": {
+                "sessions": [s.model_dump() for s in session_items],
+                "total": len(session_items)
+            }
+        }
+    except Exception as e:
+        logger.error(f"查询会话列表失败 - error: {str(e)}")
+        raise HTTPException(
+            status_code=HttpStatus.INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/history", response_model=dict)
+async def get_conversation_history(request: GetHistoryRequest):
+    """
+    获取指定会话的对话历史
+    """
+    try:
+        logger.info(f"查询对话历史 - session_id: {request.session_id}")
+        slot_manager = get_slot_manager()
+        state = slot_manager.get_session(request.session_id)
+        if not state:
+            raise HTTPException(
+                status_code=HttpStatus.NOT_FOUND,
+                detail="会话不存在"
+            )
+        history = slot_manager.get_conversation_history(request.session_id, request.limit)
+        history_entries = [HistoryEntry(**h) for h in history]
+        logger.info(f"查询对话历史成功 - session_id: {request.session_id}, count: {len(history_entries)}")
+        return {
+            "code": HttpStatus.OK,
+            "status": "success",
+            "message": "",
+            "data": {
+                "session_id": request.session_id,
+                "history": [h.model_dump() for h in history_entries],
+                "total": len(history_entries)
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查询对话历史失败 - session_id: {request.session_id}, error: {str(e)}")
         raise HTTPException(
             status_code=HttpStatus.INTERNAL_SERVER_ERROR,
             detail=str(e)

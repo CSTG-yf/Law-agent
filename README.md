@@ -21,11 +21,16 @@ backend/
 │   │   └── constants.py    # 状态码和常量定义
 │   ├── schema/
 │   │   ├── chat.py          # 对话请求体和响应体的 Pydantic 模型
+│   │   ├── config.py        # 配置管理相关的请求和响应模型
+│   │   ├── prompt_config.py # 提示词配置查询的响应模型
 │   │   └── rag.py           # RAG相关的请求和响应模型
 │   ├── api/
 │   │   └── v1/
 │   │       ├── chat.py      # 多轮对话接口路由（支持SSE流式输出）
-│   │       └── rag.py       # RAG文档管理接口路由
+│   │       ├── config.py    # 环境配置管理接口路由
+│   │       ├── prompts.py   # 提示词配置查询接口路由
+│   │       ├── rag.py       # RAG文档管理接口路由
+│   │       └── form_filling.py # 表单填写接口路由
 │   └── service/             # 业务逻辑服务层
 │       ├── agent/           # LangGraph多轮对话Agent
 │       │   ├── factory.py               # Agent工厂，管理LLM和RAG检索器实例
@@ -52,10 +57,14 @@ backend/
 │       │   └── reranker.py              # 检索结果重排序
 │       ├── vector_db.py      # 向量数据库（Chroma）的初始化与检索封装
 │       ├── form_filling/    # 法律文书智能填充服务
-│       │   ├── slot_manager.py         # 槽位状态管理器
+│       │   ├── slot_manager.py         # 槽位状态管理器（Redis持久化）
 │       │   ├── slot_extractor.py       # 语义提取引擎
 │       │   ├── doc_renderer.py        # 文档渲染服务
-│       │   └── conversation_strategy.py # 对话策略管理
+│       │   ├── conversation_strategy.py # 对话策略管理
+│       │   └── prompts/               # 提示词模板集中管理
+│       │       ├── block_descriptions.py    # 各业务块槽位描述
+│       │       ├── extraction_prompt.py     # 槽位提取提示词模板
+│       │       └── conversation_prompts.py  # 对话引导语/槽位问题
 │       └── tasks/            # 异步任务处理
 │           └── document_tasks.py        # 文档处理异步任务
 ├── scripts/
