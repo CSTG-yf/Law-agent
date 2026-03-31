@@ -36,3 +36,4 @@ backend/redis_data/
 backend/.env
 backend/logs/
 backend/outputs/
+backend/data/users.json

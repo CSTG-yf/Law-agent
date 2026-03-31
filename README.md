@@ -23,14 +23,16 @@ backend/
 │   │   ├── chat.py          # 对话请求体和响应体的 Pydantic 模型
 │   │   ├── config.py        # 配置管理相关的请求和响应模型
 │   │   ├── prompt_config.py # 提示词配置查询的响应模型
-│   │   └── rag.py           # RAG相关的请求和响应模型
+│   │   ├── rag.py           # RAG相关的请求和响应模型
+│   │   └── auth.py          # 用户认证相关的请求和响应模型
 │   ├── api/
 │   │   └── v1/
 │   │       ├── chat.py      # 多轮对话接口路由（支持SSE流式输出）
 │   │       ├── config.py    # 环境配置管理接口路由
 │   │       ├── prompts.py   # 提示词配置查询接口路由
 │   │       ├── rag.py       # RAG文档管理接口路由
-│   │       └── form_filling.py # 表单填写接口路由
+│   │       ├── form_filling.py # 表单填写接口路由
+│   │       └── auth.py      # 用户认证接口路由（注册/登录）
 │   └── service/             # 业务逻辑服务层
 │       ├── agent/           # LangGraph多轮对话Agent
 │       │   ├── factory.py               # Agent工厂，管理LLM和RAG检索器实例
@@ -67,6 +69,7 @@ backend/
 │       │       └── conversation_prompts.py  # 对话引导语/槽位问题
 │       └── tasks/            # 异步任务处理
 │           └── document_tasks.py        # 文档处理异步任务
+│       ├── auth_service.py   # 用户认证服务（文件化存储用户数据）
 ├── scripts/
 │   ├── init-model.sh         # 模型初始化脚本
 │   └── init-model-optimized.sh  # 优化的模型初始化脚本
@@ -84,7 +87,8 @@ backend/
 │   ├── error.log             # 错误日志
 │   ├── celery.log            # Celery任务日志
 │   └── celery_error.log      # Celery错误日志
-├── data/                     # 存放法律文档模板文件
+├── data/                     # 存放法律文档模板文件和用户数据
+│   ├── users.json            # 用户数据文件（注册/登录）
 ├── docs/                     # 存放 API 文档（如 Swagger/OpenAPI）
 └── tests/                    # 存放单元测试代码
 ```
@@ -138,8 +142,14 @@ uv run python scripts/download_models.py
 uv run clear_logs.py
 ```
 
+杀掉8000端口进程:
+```bash
+uv run python scripts/kill_port.py 8000
+```
+
 API文档：
 启动服务后访问：http://localhost:8000/docs
+git -C F:\Law-agent checkout origin/frontend -- frontend/
 
 ---------------------------------------------------------------------------------------------------
 Agent回答流程详解（并行优化版）：

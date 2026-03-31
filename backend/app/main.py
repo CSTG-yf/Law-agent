@@ -6,7 +6,7 @@ load_dotenv()
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1 import rag, chat, config, form_filling, prompts
+from app.api.v1 import rag, chat, config, form_filling, prompts, auth
 from app.core.config import settings
 from app.core.logger import setup_logging, api_logger
 import time
@@ -67,6 +67,7 @@ app.include_router(rag.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
 app.include_router(form_filling.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(prompts.router, prefix="/api/v1")
 
 
