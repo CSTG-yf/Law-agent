@@ -307,9 +307,73 @@ class SlotManager:
             return
 
         block = session.blocks[block_id]
-        
-        filled_slots = sum(1 for slot in block.slots.values() if slot.value is not None and slot.value != "")
-        total_slots = len(block.slots)
+
+        if block_id == "agent":
+            has_agent_slot = block.slots.get("has_agent")
+            if has_agent_slot and has_agent_slot.value == False:
+                block.is_complete = True
+                block.completion_rate = 1.0
+                logger.info(f"更新业务块完成度 - session_id: {session.session_id}, block_id: {block_id}, completion_rate: {block.completion_rate:.2f}, is_complete: {block.is_complete}")
+                return
+            else:
+                effective_slots = {k: v for k, v in block.slots.items() if k != "has_agent"}
+        elif block_id == "claims":
+            claims_pairs = [
+                ("salary", "active", "details"),
+                ("double_salary", "active", "details"),
+                ("overtime", "active", "details"),
+                ("annual_leave", "active", "details"),
+                ("social_loss", "active", "details"),
+                ("termination_compensation", "active", "details"),
+                ("illegal_termination_damages", "active", "details"),
+            ]
+            effective_slots = {}
+            for prefix, active_key, details_key in claims_pairs:
+                active_slot = block.slots.get(f"{prefix}.{active_key}")
+                details_slot = block.slots.get(f"{prefix}.{details_key}")
+                if active_slot and active_slot.value == True:
+                    effective_slots[f"{prefix}.{active_key}"] = active_slot
+                    effective_slots[f"{prefix}.{details_key}"] = details_slot
+                elif active_slot and active_slot.value == False:
+                    effective_slots[f"{prefix}.{active_key}"] = active_slot
+            for k, v in block.slots.items():
+                if k not in effective_slots and not any(k == f"{p}.{ak}" or k == f"{p}.{dk}" for p, ak, dk in claims_pairs):
+                    effective_slots[k] = v
+        else:
+            effective_slots = block.slots
+
+        if block_id == "service":
+            allow_electronic_slot = block.slots.get("allow_electronic")
+            if allow_electronic_slot and allow_electronic_slot.value == False:
+                for skip_key in ["wechat", "mail"]:
+                    skip_slot = block.slots.get(skip_key)
+                    if skip_slot and (not skip_slot.confirmed or skip_slot.value is None):
+                        block.slots[skip_key] = SlotStatus(
+                            value=None,
+                            confirmed=True,
+                            source="inferred",
+                            confidence=1.0,
+                            turn_filled=session.conversation_turn
+                        )
+                effective_slots = {k: v for k, v in block.slots.items() if k not in ["wechat", "mail"]}
+
+        if block_id == "preservation":
+            active_slot = block.slots.get("active")
+            if active_slot and active_slot.value == False:
+                for skip_key in ["court", "document"]:
+                    skip_slot = block.slots.get(skip_key)
+                    if skip_slot and (not skip_slot.confirmed or skip_slot.value is None):
+                        block.slots[skip_key] = SlotStatus(
+                            value=None,
+                            confirmed=True,
+                            source="inferred",
+                            confidence=1.0,
+                            turn_filled=session.conversation_turn
+                        )
+                effective_slots = {k: v for k, v in block.slots.items() if k not in ["court", "document"]}
+
+        filled_slots = sum(1 for slot in effective_slots.values() if slot.value is not None and slot.value != "")
+        total_slots = len(effective_slots)
         block.completion_rate = filled_slots / total_slots if total_slots > 0 else 0.0
 
         required_filled = all(
@@ -324,15 +388,7 @@ class SlotManager:
             for slot_name in block_def.required_slots
         )
         
-        if block_id == "agent":
-            has_agent_slot = block.slots.get("has_agent")
-            if has_agent_slot and has_agent_slot.value == False:
-                block.is_complete = True
-                block.completion_rate = 1.0
-            else:
-                block.is_complete = required_filled and block.completion_rate >= 0.8
-        else:
-            block.is_complete = required_filled and block.completion_rate >= 0.8
+        block.is_complete = required_filled and block.completion_rate >= 0.8
 
         logger.info(f"更新业务块完成度 - session_id: {session.session_id}, block_id: {block_id}, completion_rate: {block.completion_rate:.2f}, is_complete: {block.is_complete}")
 
@@ -357,10 +413,97 @@ class SlotManager:
         for slot_name in block_def.required_slots:
             slot_key = slot_name.split(".", 1)[1] if "." in slot_name else slot_name
             slot = block.slots.get(slot_key)
-            if not slot or not slot.value or slot.value == "":
+            if not slot or slot.value is None or slot.value == "":
                 missing.append(slot_name)
 
         return missing
+
+    def finalize_block(self, session_id: str, block_id: str) -> bool:
+        session = self.get_session(session_id)
+        if not session:
+            return False
+
+        block = session.blocks.get(block_id)
+        if not block:
+            return False
+
+        if block_id == "agent":
+            has_agent_slot = block.slots.get("has_agent")
+            if has_agent_slot and has_agent_slot.value == False:
+                for skip_key in ["name", "work_place", "job", "phone", "auth"]:
+                    skip_slot = block.slots.get(skip_key)
+                    if skip_slot and (not skip_slot.confirmed or skip_slot.value is None):
+                        block.slots[skip_key] = SlotStatus(
+                            value=None,
+                            confirmed=True,
+                            source="inferred",
+                            confidence=1.0,
+                            turn_filled=session.conversation_turn
+                        )
+
+        elif block_id == "service":
+            allow_electronic_slot = block.slots.get("allow_electronic")
+            if allow_electronic_slot and allow_electronic_slot.value == False:
+                for skip_key in ["wechat", "mail"]:
+                    skip_slot = block.slots.get(skip_key)
+                    if skip_slot and (not skip_slot.confirmed or skip_slot.value is None):
+                        block.slots[skip_key] = SlotStatus(
+                            value=None,
+                            confirmed=True,
+                            source="inferred",
+                            confidence=1.0,
+                            turn_filled=session.conversation_turn
+                        )
+
+        elif block_id == "preservation":
+            active_slot = block.slots.get("active")
+            if active_slot and active_slot.value == False:
+                for skip_key in ["court", "document"]:
+                    skip_slot = block.slots.get(skip_key)
+                    if skip_slot and (not skip_slot.confirmed or skip_slot.value is None):
+                        block.slots[skip_key] = SlotStatus(
+                            value=None,
+                            confirmed=True,
+                            source="inferred",
+                            confidence=1.0,
+                            turn_filled=session.conversation_turn
+                        )
+
+        elif block_id == "claims":
+            claims_pairs = [
+                ("salary", "active", "details"),
+                ("double_salary", "active", "details"),
+                ("overtime", "active", "details"),
+                ("annual_leave", "active", "details"),
+                ("social_loss", "active", "details"),
+                ("termination_compensation", "active", "details"),
+                ("illegal_termination_damages", "active", "details"),
+            ]
+            for prefix, active_key, details_key in claims_pairs:
+                active_slot = block.slots.get(f"{prefix}.{active_key}")
+                details_slot = block.slots.get(f"{prefix}.{details_key}")
+                if active_slot and active_slot.value is None:
+                    block.slots[f"{prefix}.{active_key}"] = SlotStatus(
+                        value=False,
+                        confirmed=True,
+                        source="inferred",
+                        confidence=1.0,
+                        turn_filled=session.conversation_turn
+                    )
+                if details_slot and details_slot.value is None:
+                    block.slots[f"{prefix}.{details_key}"] = SlotStatus(
+                        value=None,
+                        confirmed=True,
+                        source="inferred",
+                        confidence=1.0,
+                        turn_filled=session.conversation_turn
+                    )
+
+        block.is_complete = True
+        block.completion_rate = 1.0
+        self._save_session(session)
+        logger.info(f"完成业务块 - session_id: {session_id}, block_id: {block_id}")
+        return True
 
     def get_low_confidence_slots(self, session_id: str, block_id: str, threshold: float = 0.7) -> List[str]:
         session = self.get_session(session_id)

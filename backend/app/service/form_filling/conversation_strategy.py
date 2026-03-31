@@ -20,7 +20,8 @@ class ConversationStrategy:
     def generate_next_action(
         self,
         state: FormFillingState,
-        extraction_result: Dict
+        extraction_result: Dict,
+        user_input: str = ""
     ) -> Dict[str, any]:
         current_block = state.blocks.get(state.current_block)
         if not current_block:
@@ -30,10 +31,12 @@ class ConversationStrategy:
                 "suggested_next_action": None
             }
 
+        user_wants_skip = self._is_user_skipping(user_input)
+
         missing_required = self._get_missing_required_slots(state, state.current_block)
         low_confidence = self._get_low_confidence_slots(state, state.current_block)
 
-        if extraction_result.get("clarification_questions"):
+        if extraction_result.get("clarification_questions") and not user_wants_skip:
             return {
                 "message": extraction_result["clarification_questions"][0],
                 "needs_clarification": True,
@@ -41,7 +44,7 @@ class ConversationStrategy:
                 "suggested_next_action": None
             }
 
-        if low_confidence:
+        if low_confidence and not user_wants_skip:
             slot_name = low_confidence[0]
             question = self._generate_confirmation_question(slot_name)
             return {
@@ -50,7 +53,7 @@ class ConversationStrategy:
                 "suggested_next_action": None
             }
 
-        if missing_required:
+        if missing_required and not user_wants_skip:
             slot_name = missing_required[0]
             question = self._generate_question_for_slot(slot_name)
             return {
@@ -59,7 +62,17 @@ class ConversationStrategy:
                 "suggested_next_action": None
             }
 
-        if current_block.completion_rate < 0.8:
+        missing_optional = self._get_missing_optional_slots(state, state.current_block)
+        if missing_optional and not user_wants_skip:
+            slot_name = missing_optional[0]
+            question = self._generate_question_for_slot(slot_name)
+            return {
+                "message": question,
+                "needs_clarification": False,
+                "suggested_next_action": None
+            }
+
+        if current_block.completion_rate < 0.8 and not user_wants_skip:
             return {
                 "message": f"{self.get_completion_message(state.current_block)} 还有其他信息需要补充吗？",
                 "needs_clarification": False,
@@ -82,10 +95,54 @@ class ConversationStrategy:
             "suggested_next_action": "generate_document"
         }
 
+    def _is_user_skipping(self, user_input: str) -> bool:
+        if not user_input:
+            return False
+        skip_patterns = [
+            "没有了", "没有其他", "没有更多信息", "没有要补充",
+            "不需要补充", "就这些", "就这些了", "没了",
+            "没有别的", "没有别的了", "没有其他信息", "不需要了",
+            "没有了", "补充完了", "填完了", "好了", "可以了",
+            "暂时没有", "目前没有", "先这样", "就这样"
+        ]
+        user_input_stripped = user_input.strip()
+        for pattern in skip_patterns:
+            if pattern in user_input_stripped:
+                return True
+        if user_input_stripped.startswith("没有") or user_input_stripped.startswith("无") or user_input_stripped.startswith("不需要"):
+            return True
+        return False
+
     def _get_missing_required_slots(self, state: FormFillingState, block_id: str) -> List[str]:
         from app.service.form_filling.slot_manager import get_slot_manager
         slot_manager = get_slot_manager()
         return slot_manager.get_missing_required_slots(state.session_id, block_id)
+
+    def _get_missing_optional_slots(self, state: FormFillingState, block_id: str) -> List[str]:
+        from app.service.form_filling.slot_manager import get_slot_manager
+        slot_manager = get_slot_manager()
+        template_def = slot_manager.get_template_definition(state.template_type)
+        if not template_def:
+            return []
+
+        block_def = next((b for b in template_def.blocks if b.block_id == block_id), None)
+        if not block_def:
+            return []
+
+        block = state.blocks.get(block_id)
+        if not block:
+            return []
+
+        required_set = set(block_def.required_slots)
+        missing = []
+        for slot_name in block_def.slots:
+            if slot_name in required_set:
+                continue
+            slot_key = slot_name.split(".", 1)[1] if "." in slot_name else slot_name
+            slot = block.slots.get(slot_key)
+            if not slot or slot.value is None or slot.value == "":
+                missing.append(slot_name)
+        return missing
 
     def _get_low_confidence_slots(self, state: FormFillingState, block_id: str, threshold: float = 0.7) -> List[str]:
         from app.service.form_filling.slot_manager import get_slot_manager
@@ -122,12 +179,14 @@ class ConversationStrategy:
                 return "skip_agent"
             if state.current_block == "preservation":
                 return "skip_preservation"
+            return "skip_current_block"
 
         if "跳过" in user_input or "skip" in user_input_lower:
             if state.current_block == "agent":
                 return "skip_agent"
             if state.current_block == "preservation":
                 return "skip_preservation"
+            return "skip_current_block"
 
         if "修改" in user_input or "改" in user_input:
             if "原告" in user_input or "plaintiff" in user_input_lower:

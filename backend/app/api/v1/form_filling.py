@@ -21,12 +21,81 @@ from app.service.form_filling.slot_manager import get_slot_manager
 from app.service.form_filling.slot_extractor import get_slot_extractor
 from app.service.form_filling.doc_renderer import get_doc_renderer
 from app.service.form_filling.conversation_strategy import get_conversation_strategy
+from app.service.form_filling.legal_basis_retriever import get_legal_basis_retriever
 from app.core.constants import HttpStatus
 from app.core.logger import get_logger
 from pathlib import Path
 
 router = APIRouter(prefix="/form-filling", tags=["Form Filling"])
 logger = get_logger("form_filling_api")
+
+
+async def _auto_generate_legal_basis(session_id: str):
+    try:
+        sm = get_slot_manager()
+        session = sm.get_session(session_id)
+        if not session:
+            return
+
+        facts_block = session.blocks.get("facts")
+        if not facts_block:
+            return
+
+        legal_slot = facts_block.slots.get("legal_basis")
+        if legal_slot and legal_slot.value:
+            return
+
+        facts_parts = []
+        for key in ["contract_signing", "performance_details", "termination_reason", "work_injury", "arbitration_details"]:
+            slot = facts_block.slots.get(key)
+            if slot and slot.value:
+                facts_parts.append(slot.value)
+        facts_summary = "；".join(facts_parts)
+
+        claims_block = session.blocks.get("claims")
+        claims_parts = []
+        if claims_block:
+            claims_pairs = [
+                ("salary", "active", "details"),
+                ("double_salary", "active", "details"),
+                ("overtime", "active", "details"),
+                ("annual_leave", "active", "details"),
+                ("social_loss", "active", "details"),
+                ("termination_compensation", "active", "details"),
+                ("illegal_termination_damages", "active", "details"),
+            ]
+            for prefix, active_key, details_key in claims_pairs:
+                active_slot = claims_block.slots.get(f"{prefix}.{active_key}")
+                details_slot = claims_block.slots.get(f"{prefix}.{details_key}")
+                if active_slot and active_slot.value == True and details_slot and details_slot.value:
+                    claims_parts.append(details_slot.value)
+        claims_summary = "；".join(claims_parts)
+
+        if not facts_summary and not claims_summary:
+            logger.warning(f"无事实和诉求信息，跳过法律条文生成 - session_id: {session_id}")
+            return
+
+        logger.info(f"开始自动生成法律条文 - session_id: {session_id}")
+        legal_basis = await get_legal_basis_retriever().retrieve_and_generate(
+            facts_summary=facts_summary,
+            claims_summary=claims_summary
+        )
+
+        if legal_basis:
+            sm.update_slot(
+                session_id=session_id,
+                block_id="facts",
+                slot_name="legal_basis",
+                value=legal_basis,
+                confirmed=True,
+                source="auto_generated",
+                confidence=0.9
+            )
+            logger.info(f"法律条文自动生成成功 - session_id: {session_id}")
+        else:
+            logger.warning(f"法律条文自动生成失败，返回为空 - session_id: {session_id}")
+    except Exception as e:
+        logger.error(f"自动生成法律条文异常 - session_id: {session_id}, error: {e}")
 
 
 @router.post("/start", response_model=dict)
@@ -258,8 +327,47 @@ async def send_message(request: SendMessageRequest):
                     }
             elif user_intent == "generate_document":
                 return await generate_document_impl(request.session_id)
+            elif user_intent == "skip_current_block":
+                if state.current_block == "facts":
+                    await _auto_generate_legal_basis(request.session_id)
+                slot_manager.finalize_block(request.session_id, state.current_block)
+                next_block = conversation_strategy._get_next_block(state)
+                if next_block:
+                    success = slot_manager.switch_block(request.session_id, next_block)
+                    if success:
+                        greeting = conversation_strategy.get_greeting_message(next_block)
+                        state = slot_manager.get_session(request.session_id)
+                        all_extracted_slots = {}
+                        for block_id, block_data in state.blocks.items():
+                            for slot_name, slot_status in block_data.slots.items():
+                                if slot_status.value is not None:
+                                    full_slot_name = f"{block_id}.{slot_name}"
+                                    all_extracted_slots[full_slot_name] = slot_status.value
+
+                        current_block_data = state.blocks.get(next_block)
+                        current_block_completion_rate = current_block_data.completion_rate if current_block_data else 0.0
+
+                        slot_manager.save_conversation_history(request.session_id, "user", request.message)
+                        slot_manager.save_conversation_history(request.session_id, "assistant", greeting)
+
+                        logger.info(f"跳过当前业务块 - session_id: {request.session_id}, from: {state.current_block}, to: {next_block}")
+                        return {
+                            "code": HttpStatus.OK,
+                            "status": "success",
+                            "message": "",
+                            "data": SendMessageResponse(
+                                session_id=request.session_id,
+                                message=greeting,
+                                current_block=next_block,
+                                completion_rate=current_block_completion_rate,
+                                extracted_slots=all_extracted_slots,
+                                needs_clarification=False,
+                                suggested_next_action=None
+                            ).model_dump()
+                        }
 
         state.conversation_turn += 1
+        slot_manager._save_session(state)
 
         known_slots = {}
         for block_id, block_data in state.blocks.items():
@@ -307,7 +415,8 @@ async def send_message(request: SendMessageRequest):
 
         next_action = conversation_strategy.generate_next_action(
             state,
-            extraction_result.model_dump()
+            extraction_result.model_dump(),
+            user_input=request.message
         )
 
         state = slot_manager.get_session(request.session_id)
@@ -326,6 +435,9 @@ async def send_message(request: SendMessageRequest):
         
         if suggested_next_action and suggested_next_action.startswith("switch_to_"):
             target_block = suggested_next_action.replace("switch_to_", "")
+            if state.current_block == "facts":
+                await _auto_generate_legal_basis(request.session_id)
+            slot_manager.finalize_block(request.session_id, state.current_block)
             success = slot_manager.switch_block(request.session_id, target_block)
             if success:
                 state = slot_manager.get_session(request.session_id)
@@ -501,8 +613,9 @@ async def generate_document_impl(session_id: str) -> dict:
                 block = state.blocks.get(block_def.block_id)
                 if block:
                     for slot_name in block_def.required_slots:
-                        slot = block.slots.get(slot_name)
-                        if not slot or not slot.value:
+                        slot_key = slot_name.split(".", 1)[1] if "." in slot_name else slot_name
+                        slot = block.slots.get(slot_key)
+                        if not slot or slot.value is None or slot.value == "":
                             missing_fields.append(f"{block_def.display_name}.{slot_name}")
 
         logger.warning(f"文档不完整 - session_id: {session_id}, missing: {missing_fields}")

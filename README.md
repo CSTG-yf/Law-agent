@@ -147,6 +147,12 @@ uv run clear_logs.py
 uv run python scripts/kill_port.py 8000
 ```
 
+拉取前端代码:
+```bash
+git -C F:\Law-agent checkout origin/frontend -- frontend/
+```
+
+
 API文档：
 启动服务后访问：http://localhost:8000/docs
 git -C F:\Law-agent checkout origin/frontend -- frontend/
