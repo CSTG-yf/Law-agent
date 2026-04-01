@@ -38,7 +38,7 @@ export interface UpdateUserResponse {
 // 登录接口
 export const loginAPI = (data: LoginForm) => {
   return request<LoginResponse>({
-    url: '/api/v1/user/login',
+    url: '/api/v1/auth/login',
     method: 'POST',
     data: {
       user_name: data.username,
@@ -50,7 +50,7 @@ export const loginAPI = (data: LoginForm) => {
 // 注册接口
 export const registerAPI = (data: RegisterForm) => {
   return request({
-    url: '/api/v1/user/register',
+    url: '/api/v1/auth/register',
     method: 'POST',
     data
   })
@@ -59,7 +59,7 @@ export const registerAPI = (data: RegisterForm) => {
 // 登出接口
 export const logoutAPI = () => {
   return request({
-    url: '/api/v1/user/logout',
+    url: '/api/v1/auth/logout',
     method: 'POST'
   })
 }
@@ -67,7 +67,7 @@ export const logoutAPI = () => {
 // 获取用户信息接口
 export const getUserInfoAPI = (userId: string) => {
   return request({
-    url: `/api/v1/user/info?user_id=${userId}`,
+    url: `/api/v1/auth/info?user_id=${userId}`,
     method: 'GET'
   })
 }
@@ -75,7 +75,7 @@ export const getUserInfoAPI = (userId: string) => {
 // 更新用户信息接口
 export const updateUserInfoAPI = (userId: string, userAvatar?: string, userDescription?: string) => {
   return request<UpdateUserResponse>({
-    url: '/api/v1/user/update',
+    url: '/api/v1/auth/update',
     method: 'PUT',
     data: {
       user_id: userId,
@@ -88,7 +88,7 @@ export const updateUserInfoAPI = (userId: string, userAvatar?: string, userDescr
 // 获取用户头像选择接口
 export const getUserIconsAPI = () => {
   return request<UserIconsResponse>({
-    url: '/api/v1/user/icons',
+    url: '/api/v1/auth/icons',
     method: 'GET'
   })
 }
