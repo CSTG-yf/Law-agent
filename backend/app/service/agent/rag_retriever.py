@@ -3,6 +3,7 @@ from langchain_core.documents import Document
 from app.service.vector_db import ChromaVectorStore
 from app.service.rag.hybrid_retriever import AdvancedRAGService
 from app.service.rag.reranker import Reranker
+from app.service.graph.graph_retriever import GraphRetriever
 from app.core.config import settings
 from app.core.logger import get_logger
 
@@ -14,6 +15,8 @@ class RAGRetriever:
         self.vector_store = vector_store
         self.rag_service = AdvancedRAGService(vector_store)
         self.reranker = Reranker()
+        self.graph_retriever = GraphRetriever()
+        logger.info("RAG检索器初始化成功 - 包含知识图谱检索")
 
     async def retrieve(
         self,
@@ -34,6 +37,8 @@ class RAGRetriever:
             documents = await self._mmr_search(query, top_k)
         elif strategy == "multi_query":
             documents = await self._multi_query_search(query, top_k)
+        elif strategy == "graph":
+            documents = await self._graph_search(query, top_k)
         else:
             documents = []
 
@@ -100,6 +105,12 @@ class RAGRetriever:
             query=query,
             strategy="multi_query",
             k=top_k
+        )
+
+    async def _graph_search(self, query: str, top_k: int) -> List[Document]:
+        return await self.graph_retriever.retrieve(
+            query=query,
+            top_k=top_k
         )
 
     async def retrieve_with_metadata(
