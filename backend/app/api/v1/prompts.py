@@ -29,6 +29,14 @@ def _collect_all_prompts() -> list:
         SLOT_CONFIRMATIONS, ALL_COMPLETE_MESSAGE,
         DEFAULT_GREETING, DEFAULT_COMPLETION, DEFAULT_SLOT_QUESTION, DEFAULT_SLOT_CONFIRMATION
     )
+    from app.service.graph.graph_prompts import (
+        LEGAL_GRAPH_SYSTEM_PROMPT,
+        CASE_GRAPH_SYSTEM_PROMPT,
+        GENERAL_GRAPH_SYSTEM_PROMPT,
+        LEGAL_GRAPH_USER_PROMPT_TEMPLATE,
+        CASE_GRAPH_USER_PROMPT_TEMPLATE,
+        GENERAL_GRAPH_USER_PROMPT_TEMPLATE
+    )
 
     items = []
 
@@ -261,6 +269,72 @@ def _collect_all_prompts() -> list:
         category="inline",
         is_template=False,
         source_file="backend/app/service/agent/legal_conversation_agent.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="graph.legal_system_prompt",
+        label="法律文档图谱提取系统提示词",
+        content=LEGAL_GRAPH_SYSTEM_PROMPT,
+        description="从法律文档中提取实体和关系构建知识图谱的系统提示词，定义了法条、法律概念、法律术语等实体类型",
+        tags=["系统提示词", "知识图谱", "法律文档", "实体提取"],
+        category="graph",
+        is_template=False,
+        source_file="backend/app/service/graph/graph_prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="graph.case_system_prompt",
+        label="案例文档图谱提取系统提示词",
+        content=CASE_GRAPH_SYSTEM_PROMPT,
+        description="从案例文档中提取实体和关系构建知识图谱的系统提示词，定义了案例、当事人、法条等实体类型",
+        tags=["系统提示词", "知识图谱", "案例文档", "实体提取"],
+        category="graph",
+        is_template=False,
+        source_file="backend/app/service/graph/graph_prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="graph.general_system_prompt",
+        label="通用文档图谱提取系统提示词",
+        content=GENERAL_GRAPH_SYSTEM_PROMPT,
+        description="从通用文档中提取实体和关系构建知识图谱的系统提示词",
+        tags=["系统提示词", "知识图谱", "通用文档", "实体提取"],
+        category="graph",
+        is_template=False,
+        source_file="backend/app/service/graph/graph_prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="graph.legal_user_prompt",
+        label="法律文档图谱提取用户提示词模板",
+        content=LEGAL_GRAPH_USER_PROMPT_TEMPLATE,
+        description="法律文档图谱提取的用户提示词模板，包含content占位符",
+        tags=["用户提示词", "知识图谱", "法律文档", "模板"],
+        category="graph",
+        is_template=True,
+        source_file="backend/app/service/graph/graph_prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="graph.case_user_prompt",
+        label="案例文档图谱提取用户提示词模板",
+        content=CASE_GRAPH_USER_PROMPT_TEMPLATE,
+        description="案例文档图谱提取的用户提示词模板，包含content占位符",
+        tags=["用户提示词", "知识图谱", "案例文档", "模板"],
+        category="graph",
+        is_template=True,
+        source_file="backend/app/service/graph/graph_prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="graph.general_user_prompt",
+        label="通用文档图谱提取用户提示词模板",
+        content=GENERAL_GRAPH_USER_PROMPT_TEMPLATE,
+        description="通用文档图谱提取的用户提示词模板，包含content占位符",
+        tags=["用户提示词", "知识图谱", "通用文档", "模板"],
+        category="graph",
+        is_template=True,
+        source_file="backend/app/service/graph/graph_prompts.py"
     ))
 
     return items

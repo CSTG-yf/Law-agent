@@ -98,6 +98,49 @@ async def _auto_generate_legal_basis(session_id: str):
         logger.error(f"自动生成法律条文异常 - session_id: {session_id}, error: {e}")
 
 
+def _confirm_remaining_claims(slot_manager, session_id: str):
+    session = slot_manager.get_session(session_id)
+    if not session:
+        return
+
+    claims_block = session.blocks.get("claims")
+    if not claims_block:
+        return
+
+    claims_types = [
+        "salary", "double_salary", "overtime", "annual_leave",
+        "social_loss", "termination_compensation", "illegal_termination_damages"
+    ]
+
+    from app.schema.form_filling import SlotStatus
+
+    for claim_key in claims_types:
+        active_slot = claims_block.slots.get(f"{claim_key}.active")
+        if not active_slot or active_slot.value is None:
+            claims_block.slots[f"{claim_key}.active"] = SlotStatus(
+                value=False,
+                confirmed=True,
+                source="inferred",
+                confidence=1.0,
+                turn_filled=session.conversation_turn
+            )
+            logger.info(f"确认剩余诉讼请求 - session_id: {session_id}, slot: {claim_key}.active, value: False")
+
+        details_slot = claims_block.slots.get(f"{claim_key}.details")
+        if details_slot and details_slot.value is None:
+            claims_block.slots[f"{claim_key}.details"] = SlotStatus(
+                value=None,
+                confirmed=True,
+                source="inferred",
+                confidence=1.0,
+                turn_filled=session.conversation_turn
+            )
+            logger.info(f"确认剩余诉讼请求 - session_id: {session_id}, slot: {claim_key}.details, value: None")
+
+    slot_manager._save_session(session)
+    logger.info(f"确认剩余诉讼请求完成 - session_id: {session_id}")
+
+
 @router.post("/start", response_model=dict)
 async def start_filling(request: StartFillingRequest):
     """
@@ -327,6 +370,8 @@ async def send_message(request: SendMessageRequest):
                     }
             elif user_intent == "generate_document":
                 return await generate_document_impl(request.session_id)
+            elif user_intent == "confirm_remaining_claims":
+                _confirm_remaining_claims(slot_manager, request.session_id)
             elif user_intent == "skip_current_block":
                 if state.current_block == "facts":
                     await _auto_generate_legal_basis(request.session_id)
@@ -413,13 +458,14 @@ async def send_message(request: SendMessageRequest):
                     confidence=slot_confidence
                 )
 
+        # Refresh state after slot updates before generating next action
+        state = slot_manager.get_session(request.session_id)
+
         next_action = conversation_strategy.generate_next_action(
             state,
             extraction_result.model_dump(),
             user_input=request.message
         )
-
-        state = slot_manager.get_session(request.session_id)
 
         all_extracted_slots = {}
         for block_id, block_data in state.blocks.items():

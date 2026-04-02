@@ -35,5 +35,18 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
+    
+    # 知识图谱配置（可动态配置）
+    GRAPH_MODEL_NAME: str = "qwen-max-latest"
+    GRAPH_STRICT_MODE: bool = True
+    GRAPH_MAX_CHUNK_SIZE: int = 10000
+
+
+def reload_settings() -> Settings:
+    """重新加载配置"""
+    global settings
+    settings = Settings()
+    return settings
+
 
 settings = Settings()

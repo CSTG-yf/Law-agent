@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from app.schema.form_filling import FormFillingState, BlockState
 from app.core.logger import get_logger
 from app.service.form_filling.prompts.conversation_prompts import (
@@ -7,6 +7,16 @@ from app.service.form_filling.prompts.conversation_prompts import (
 )
 
 logger = get_logger("conversation_strategy")
+
+CLAIMS_TYPES = [
+    ("salary", "工资支付"),
+    ("double_salary", "未签订劳动合同双倍工资"),
+    ("overtime", "加班费"),
+    ("annual_leave", "年休假工资"),
+    ("social_loss", "社保损失"),
+    ("termination_compensation", "经济补偿金"),
+    ("illegal_termination_damages", "违法解除劳动合同赔偿金"),
+]
 
 
 class ConversationStrategy:
@@ -61,6 +71,11 @@ class ConversationStrategy:
                 "needs_clarification": False,
                 "suggested_next_action": None
             }
+
+        if state.current_block == "claims":
+            claims_action = self._handle_claims_block(state, user_wants_skip)
+            if claims_action:
+                return claims_action
 
         missing_optional = self._get_missing_optional_slots(state, state.current_block)
         if missing_optional and not user_wants_skip:
@@ -140,9 +155,69 @@ class ConversationStrategy:
                 continue
             slot_key = slot_name.split(".", 1)[1] if "." in slot_name else slot_name
             slot = block.slots.get(slot_key)
-            if not slot or slot.value is None or slot.value == "":
+            if not slot:
+                continue
+            if slot.confirmed and slot.source == "inferred" and slot.value is None:
+                continue
+            if slot.value is None or slot.value == "":
                 missing.append(slot_name)
         return missing
+
+    def _get_claims_status(self, state: FormFillingState) -> Tuple[List[str], List[str]]:
+        block = state.blocks.get("claims")
+        if not block:
+            return [], []
+
+        confirmed_claims = []
+        unconfirmed_claims = []
+
+        for claim_key, claim_name in CLAIMS_TYPES:
+            active_slot = block.slots.get(f"{claim_key}.active")
+            if active_slot and active_slot.value is not None and active_slot.confirmed:
+                if active_slot.value == True:
+                    confirmed_claims.append(claim_name)
+            else:
+                unconfirmed_claims.append(claim_name)
+
+        return confirmed_claims, unconfirmed_claims
+
+    def _handle_claims_block(self, state: FormFillingState, user_wants_skip: bool) -> Optional[Dict]:
+        block = state.blocks.get("claims")
+        if not block:
+            return None
+
+        confirmed_claims, unconfirmed_claims = self._get_claims_status(state)
+
+        litigation_slot = block.slots.get("litigation_cost_burden")
+        litigation_filled = litigation_slot and litigation_slot.value is not None
+
+        if user_wants_skip:
+            if not litigation_filled:
+                return {
+                    "message": "请问诉讼费用由谁承担？",
+                    "needs_clarification": False,
+                    "suggested_next_action": None
+                }
+            return None
+
+        if unconfirmed_claims:
+            examples = "、".join(unconfirmed_claims[:3])
+            if len(unconfirmed_claims) > 3:
+                examples += "等"
+            return {
+                "message": f"好的，已记录您的诉求。请问是否还有其他诉讼请求？例如：{examples}？",
+                "needs_clarification": False,
+                "suggested_next_action": None
+            }
+
+        if not litigation_filled:
+            return {
+                "message": "请问诉讼费用由谁承担？",
+                "needs_clarification": False,
+                "suggested_next_action": None
+            }
+
+        return None
 
     def _get_low_confidence_slots(self, state: FormFillingState, block_id: str, threshold: float = 0.7) -> List[str]:
         from app.service.form_filling.slot_manager import get_slot_manager
@@ -179,6 +254,8 @@ class ConversationStrategy:
                 return "skip_agent"
             if state.current_block == "preservation":
                 return "skip_preservation"
+            if state.current_block == "claims":
+                return "confirm_remaining_claims"
             return "skip_current_block"
 
         if "跳过" in user_input or "skip" in user_input_lower:
@@ -186,6 +263,8 @@ class ConversationStrategy:
                 return "skip_agent"
             if state.current_block == "preservation":
                 return "skip_preservation"
+            if state.current_block == "claims":
+                return "confirm_remaining_claims"
             return "skip_current_block"
 
         if "修改" in user_input or "改" in user_input:
