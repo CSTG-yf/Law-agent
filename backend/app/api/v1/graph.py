@@ -2,14 +2,15 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional
 from pathlib import Path
 import shutil
+import uuid
 from app.service.graph.graph_db import Neo4jGraphStore
-from app.service.graph.graph_builder_v2 import KnowledgeGraphBuilderV2
 from app.schema.graph import (
     GraphUploadResponse,
     GraphQueryRequest,
     GraphQueryResponse,
     GraphStatisticsResponse
 )
+from app.tasks.graph_tasks import build_graph_task, clear_graph_task
 from app.core.logger import get_logger
 
 router = APIRouter(prefix="/graph", tags=["Knowledge Graph"])
@@ -21,26 +22,28 @@ graph_store = Neo4jGraphStore()
 @router.post("/upload", response_model=GraphUploadResponse)
 async def upload_to_graph(
     file: UploadFile = File(..., description="上传的文件"),
-    document_type: str = Form("legal", description="文档类型: legal/case/general"),
-    strict_mode: bool = Form(True, description="是否启用严格模式")
+    document_type: str = Form("legal", description="文档类型: legal/case/general")
 ):
     """
-    上传文档并使用 LangChain LLMGraphTransformer 构建知识图谱
+    上传文档并异步构建知识图谱
     
     特点：
+    - 异步处理：使用 Celery 任务队列异步处理
     - Schema 约束：只提取预定义的实体类型和关系类型
-    - 严格模式：确保提取结果符合 Schema 定义
-    - 结构化输出：保证提取结果的格式一致性
+    - 任务追踪：返回任务 ID，可查询处理进度
     
     支持的文档类型：
     - legal: 法律文档（法条、法规等）
     - case: 案例文档（判决书、案例等）
     - general: 通用文档
+    
+    返回：
+    - task_id: 任务 ID，用于查询处理进度
     """
     try:
         logger.info(
             f"上传文档构建知识图谱 - "
-            f"filename: {file.filename}, type: {document_type}, strict: {strict_mode}"
+            f"filename: {file.filename}, type: {document_type}"
         )
         
         if document_type not in ["legal", "case", "general"]:
@@ -56,34 +59,29 @@ async def upload_to_graph(
         
         logger.info(f"文件保存成功 - path: {file_path}")
         
-        graph_builder = KnowledgeGraphBuilderV2()
+        task_id = str(uuid.uuid4())
         
-        result = await graph_builder.build_from_document(
+        logger.info(f"创建知识图谱构建任务 - task_id: {task_id}")
+        
+        task = build_graph_task.delay(
+            task_id=task_id,
             file_path=str(file_path),
+            file_name=file.filename,
             document_type=document_type
         )
         
-        if result.get("success"):
-            logger.info(
-                f"知识图谱构建成功 - "
-                f"nodes: {result['nodes_count']}, "
-                f"relationships: {result['relationships_count']}"
-            )
-            return GraphUploadResponse(
-                success=True,
-                message="知识图谱构建成功",
-                code=200,
-                file_name=file.filename,
-                document_type=document_type,
-                nodes_count=result["nodes_count"],
-                relationships_count=result["relationships_count"]
-            )
-        else:
-            logger.error(f"知识图谱构建失败 - error: {result.get('error')}")
-            raise HTTPException(
-                status_code=500,
-                detail=result.get("error", "知识图谱构建失败")
-            )
+        logger.info(f"知识图谱构建任务已提交 - task_id: {task_id}, celery_id: {task.id}")
+        
+        return GraphUploadResponse(
+            success=True,
+            message="知识图谱构建任务已提交，请使用 task_id 查询处理进度",
+            code=200,
+            file_name=file.filename,
+            document_type=document_type,
+            nodes_count=0,
+            relationships_count=0,
+            task_id=task_id
+        )
             
     except HTTPException:
         raise
@@ -95,6 +93,79 @@ async def upload_to_graph(
         raise HTTPException(
             status_code=500,
             detail=f"上传文档构建知识图谱失败: {str(e)}"
+        )
+
+
+@router.get("/task/{task_id}")
+async def get_task_status(task_id: str):
+    """
+    查询知识图谱构建任务状态
+    
+    Args:
+        task_id: 任务 ID
+        
+    Returns:
+        任务状态信息
+    """
+    try:
+        logger.info(f"查询任务状态 - task_id: {task_id}")
+        
+        from app.celery_config import celery_app
+        
+        task_result = celery_app.AsyncResult(task_id)
+        
+        if task_result.state == 'PENDING':
+            response = {
+                'task_id': task_id,
+                'status': 'pending',
+                'message': '任务等待中'
+            }
+        elif task_result.state == 'PROGRESS':
+            response = {
+                'task_id': task_id,
+                'status': 'processing',
+                'progress': task_result.info.get('progress', 0),
+                'message': task_result.info.get('message', '处理中')
+            }
+        elif task_result.state == 'SUCCESS':
+            result = task_result.result
+            response = {
+                'task_id': task_id,
+                'status': 'completed',
+                'success': result.get('success', False),
+                'message': result.get('message', '任务完成'),
+                'file_name': result.get('file_name'),
+                'document_type': result.get('document_type'),
+                'nodes_count': result.get('nodes_count', 0),
+                'relationships_count': result.get('relationships_count', 0)
+            }
+        elif task_result.state == 'FAILURE':
+            response = {
+                'task_id': task_id,
+                'status': 'failed',
+                'error': str(task_result.info)
+            }
+        else:
+            response = {
+                'task_id': task_id,
+                'status': task_result.state.lower(),
+                'info': str(task_result.info)
+            }
+        
+        logger.info(f"查询任务状态成功 - task_id: {task_id}, status: {response['status']}")
+        
+        return {
+            'code': 200,
+            'status': 'success',
+            'message': '任务状态查询成功',
+            'data': response
+        }
+        
+    except Exception as e:
+        logger.error(f"查询任务状态失败 - task_id: {task_id}, error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"查询任务状态失败: {str(e)}"
         )
 
 
@@ -218,28 +289,23 @@ async def get_graph_statistics():
 
 @router.delete("/clear")
 async def clear_graph():
-    """清空知识图谱（慎用）"""
+    """清空知识图谱（慎用）- 异步任务"""
     try:
         logger.warning("清空知识图谱")
         
-        success = graph_store.clear_all()
+        task_id = str(uuid.uuid4())
         
-        if success:
-            logger.info("知识图谱清空成功")
-            return {
-                "success": True,
-                "message": "知识图谱已清空",
-                "code": 200
-            }
-        else:
-            logger.error("知识图谱清空失败")
-            raise HTTPException(
-                status_code=500,
-                detail="知识图谱清空失败"
-            )
+        task = clear_graph_task.delay(task_id=task_id)
+        
+        logger.info(f"清空知识图谱任务已提交 - task_id: {task_id}, celery_id: {task.id}")
+        
+        return {
+            "success": True,
+            "message": "清空知识图谱任务已提交",
+            "code": 200,
+            "task_id": task_id
+        }
             
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"清空知识图谱失败 - error: {str(e)}")
         raise HTTPException(

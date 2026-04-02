@@ -9,7 +9,8 @@ celery_app = Celery(
     broker=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
     backend=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
     include=[
-        "app.tasks.document_tasks"
+        "app.tasks.document_tasks",
+        "app.tasks.graph_tasks"
     ]
 )
 

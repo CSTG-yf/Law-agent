@@ -10,6 +10,7 @@ class GraphUploadResponse(BaseModel):
     document_type: Optional[str] = None
     nodes_count: Optional[int] = None
     relationships_count: Optional[int] = None
+    task_id: Optional[str] = None
 
 
 class GraphQueryRequest(BaseModel):
