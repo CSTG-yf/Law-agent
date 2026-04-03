@@ -43,6 +43,7 @@ dependencies = [
     # 知识图谱
     "neo4j>=5.15.0",
     "langchain-experimental>=0.3.0",
+    "json-repair>=0.7.0",
 ]
 
 [[tool.uv.index]]

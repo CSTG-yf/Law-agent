@@ -2,15 +2,15 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional
 from pathlib import Path
 import shutil
-import uuid
 from app.service.graph.graph_db import Neo4jGraphStore
+from app.service.graph.graph_document_manager import graph_document_manager
 from app.schema.graph import (
     GraphUploadResponse,
     GraphQueryRequest,
     GraphQueryResponse,
     GraphStatisticsResponse
 )
-from app.tasks.graph_tasks import build_graph_task, clear_graph_task
+from app.tasks.graph_tasks import build_graph_task, delete_graph_document_task, clear_graph_task
 from app.core.logger import get_logger
 
 router = APIRouter(prefix="/graph", tags=["Knowledge Graph"])
@@ -31,6 +31,7 @@ async def upload_to_graph(
     - 异步处理：使用 Celery 任务队列异步处理
     - Schema 约束：只提取预定义的实体类型和关系类型
     - 任务追踪：返回任务 ID，可查询处理进度
+    - 重复检测：自动检测重复文件
     
     支持的文档类型：
     - legal: 法律文档（法条、法规等）
@@ -59,18 +60,31 @@ async def upload_to_graph(
         
         logger.info(f"文件保存成功 - path: {file_path}")
         
-        task_id = str(uuid.uuid4())
+        file_hash = graph_document_manager.calculate_file_hash(str(file_path))
         
-        logger.info(f"创建知识图谱构建任务 - task_id: {task_id}")
+        if file_hash and graph_document_manager.is_duplicate(file_hash):
+            logger.warning(f"文件已存在 - file: {file.filename}, hash: {file_hash[:8]}")
+            return GraphUploadResponse(
+                success=False,
+                message="文件已存在，请勿重复上传",
+                code=400,
+                file_name=file.filename,
+                document_type=document_type,
+                nodes_count=0,
+                relationships_count=0,
+                task_id=None,
+                file_hash=file_hash
+            )
         
         task = build_graph_task.delay(
-            task_id=task_id,
             file_path=str(file_path),
             file_name=file.filename,
             document_type=document_type
         )
         
-        logger.info(f"知识图谱构建任务已提交 - task_id: {task_id}, celery_id: {task.id}")
+        task_id = task.id
+        
+        logger.info(f"知识图谱构建任务已提交 - task_id: {task_id}")
         
         return GraphUploadResponse(
             success=True,
@@ -93,6 +107,124 @@ async def upload_to_graph(
         raise HTTPException(
             status_code=500,
             detail=f"上传文档构建知识图谱失败: {str(e)}"
+        )
+
+
+@router.get("/documents")
+async def get_documents():
+    """
+    获取知识图谱文档列表
+    
+    Returns:
+        文档列表
+    """
+    try:
+        logger.info("获取知识图谱文档列表")
+        
+        documents = graph_document_manager.get_all_documents()
+        
+        logger.info(f"获取知识图谱文档列表成功 - count: {len(documents)}")
+        
+        return {
+            "code": 200,
+            "status": "success",
+            "message": "获取文档列表成功",
+            "data": {
+                "documents": documents,
+                "total": len(documents)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"获取文档列表失败 - error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取文档列表失败: {str(e)}"
+        )
+
+
+@router.get("/documents/{file_hash}")
+async def get_document(file_hash: str):
+    """
+    获取单个文档信息
+    
+    Args:
+        file_hash: 文件哈希
+        
+    Returns:
+        文档信息
+    """
+    try:
+        logger.info(f"获取文档信息 - hash: {file_hash[:8]}")
+        
+        doc_info = graph_document_manager.get_document(file_hash)
+        
+        if doc_info is None:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        
+        logger.info(f"获取文档信息成功 - file: {doc_info.get('file_name')}")
+        
+        return {
+            "code": 200,
+            "status": "success",
+            "message": "获取文档信息成功",
+            "data": {
+                "file_hash": file_hash,
+                **doc_info
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取文档信息失败 - hash: {file_hash[:8]}, error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取文档信息失败: {str(e)}"
+        )
+
+
+@router.delete("/documents/{file_hash}")
+async def delete_document(file_hash: str):
+    """
+    删除文档（异步任务）
+    
+    Args:
+        file_hash: 文件哈希
+        
+    Returns:
+        任务信息
+    """
+    try:
+        logger.info(f"删除文档 - hash: {file_hash[:8]}")
+        
+        doc_info = graph_document_manager.get_document(file_hash)
+        
+        if doc_info is None:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        
+        task = delete_graph_document_task.delay(file_hash=file_hash)
+        
+        logger.info(f"删除文档任务已提交 - task_id: {task.id}")
+        
+        return {
+            "code": 200,
+            "status": "success",
+            "message": "删除文档任务已提交",
+            "data": {
+                "task_id": task.id,
+                "file_hash": file_hash,
+                "file_name": doc_info.get("file_name")
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除文档失败 - hash: {file_hash[:8]}, error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"删除文档失败: {str(e)}"
         )
 
 
@@ -135,9 +267,11 @@ async def get_task_status(task_id: str):
                 'success': result.get('success', False),
                 'message': result.get('message', '任务完成'),
                 'file_name': result.get('file_name'),
+                'file_hash': result.get('file_hash'),
                 'document_type': result.get('document_type'),
                 'nodes_count': result.get('nodes_count', 0),
-                'relationships_count': result.get('relationships_count', 0)
+                'relationships_count': result.get('relationships_count', 0),
+                'error_type': result.get('error_type')
             }
         elif task_result.state == 'FAILURE':
             response = {
@@ -261,22 +395,24 @@ async def get_graph_statistics():
     try:
         logger.info("获取知识图谱统计信息")
         
-        stats = graph_store.get_statistics()
+        graph_stats = graph_store.get_statistics()
+        doc_stats = graph_document_manager.get_statistics()
         
         logger.info(
             f"获取知识图谱统计信息成功 - "
-            f"nodes: {stats.get('total_nodes', 0)}, "
-            f"relationships: {stats.get('total_relationships', 0)}"
+            f"nodes: {graph_stats.get('total_nodes', 0)}, "
+            f"relationships: {graph_stats.get('total_relationships', 0)}"
         )
         
         return GraphStatisticsResponse(
             success=True,
             message="获取统计信息成功",
             code=200,
-            total_nodes=stats.get("total_nodes", 0),
-            total_relationships=stats.get("total_relationships", 0),
-            node_types=stats.get("node_types", []),
-            relationship_types=stats.get("relationship_types", [])
+            total_nodes=graph_stats.get("total_nodes", 0),
+            total_relationships=graph_stats.get("total_relationships", 0),
+            node_types=graph_stats.get("node_types", []),
+            relationship_types=graph_stats.get("relationship_types", []),
+            document_stats=doc_stats
         )
             
     except Exception as e:
@@ -293,11 +429,10 @@ async def clear_graph():
     try:
         logger.warning("清空知识图谱")
         
-        task_id = str(uuid.uuid4())
+        task = clear_graph_task.delay()
+        task_id = task.id
         
-        task = clear_graph_task.delay(task_id=task_id)
-        
-        logger.info(f"清空知识图谱任务已提交 - task_id: {task_id}, celery_id: {task.id}")
+        logger.info(f"清空知识图谱任务已提交 - task_id: {task_id}")
         
         return {
             "success": True,

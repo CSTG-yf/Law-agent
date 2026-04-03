@@ -11,6 +11,7 @@ class GraphUploadResponse(BaseModel):
     nodes_count: Optional[int] = None
     relationships_count: Optional[int] = None
     task_id: Optional[str] = None
+    file_hash: Optional[str] = None
 
 
 class GraphQueryRequest(BaseModel):
@@ -37,3 +38,16 @@ class GraphStatisticsResponse(BaseModel):
     total_relationships: int
     node_types: List[Dict[str, Any]]
     relationship_types: List[Dict[str, Any]]
+    document_stats: Optional[Dict[str, Any]] = None
+
+
+class GraphDocumentInfo(BaseModel):
+    file_hash: str
+    file_name: str
+    file_path: str
+    document_type: str
+    nodes_count: int
+    relationships_count: int
+    uploaded_at: str
+    status: str
+    error_message: Optional[str] = None

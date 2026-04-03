@@ -195,6 +195,32 @@ class Neo4jGraphStore:
             logger.error(f"清空数据失败 - error: {str(e)}")
             return False
     
+    def delete_nodes_by_property(self, property_name: str, property_value: str) -> Dict[str, Any]:
+        """
+        根据属性删除节点
+        
+        Args:
+            property_name: 属性名
+            property_value: 属性值
+            
+        Returns:
+            删除结果
+        """
+        query = f"""
+        MATCH (n {{{property_name}: $value}})
+        WITH n, count(n) as total
+        DETACH DELETE n
+        RETURN total
+        """
+        try:
+            result = self.execute_query(query, {"value": property_value})
+            deleted_count = result[0]["total"] if result else 0
+            logger.info(f"删除节点成功 - property: {property_name}={property_value}, count: {deleted_count}")
+            return {"success": True, "deleted_count": deleted_count}
+        except Exception as e:
+            logger.error(f"删除节点失败 - property: {property_name}={property_value}, error: {str(e)}")
+            return {"success": False, "deleted_count": 0, "error": str(e)}
+    
     def get_statistics(self) -> Dict[str, Any]:
         """获取图谱统计信息"""
         try:

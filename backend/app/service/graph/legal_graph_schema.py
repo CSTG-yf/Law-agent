@@ -124,7 +124,7 @@ def create_legal_graph_transformer(llm, strict_mode: bool = True) -> LLMGraphTra
             allowed_nodes=LegalGraphSchema.ALLOWED_NODES,
             allowed_relationships=LegalGraphSchema.ALLOWED_RELATIONSHIPS,
             strict_mode=strict_mode,
-            node_properties=True,
+            ignore_tool_usage=True,
         )
         
         logger.info(
@@ -159,7 +159,7 @@ def create_case_graph_transformer(llm, strict_mode: bool = True) -> LLMGraphTran
             allowed_nodes=CaseGraphSchema.ALLOWED_NODES,
             allowed_relationships=CaseGraphSchema.ALLOWED_RELATIONSHIPS,
             strict_mode=strict_mode,
-            node_properties=True,
+            ignore_tool_usage=True,
         )
         
         logger.info(
