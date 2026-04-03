@@ -672,9 +672,9 @@ watch(
             <div class="avatar-wrapper">
               <img src="../../assets/robot.svg" alt="智言" class="avatar" />
             </div>
-            <h1 class="welcome-title">我是律动AI助手，很高兴见到你！</h1>
+            <h1 class="welcome-title">我是智言小助手，很高兴见到你！</h1>
             <p class="welcome-subtitle">
-              吾心吾行澄如明镜,所作所为皆为正义！
+              欢迎体验智言灵寻 LingSeek，一位懂得完成复杂任务的 Agent 助理~
             </p>
           </div>
 
@@ -762,7 +762,6 @@ watch(
               </div>
             </div>
           </div>
-          <p class="disclaimer-text">内容均为AI生成，想要获取专业且正规的回答，请咨询相关人士</p>
         </div>
       </div>
     </div>
@@ -1118,13 +1117,6 @@ watch(
       border-top: 1px solid #e9ecef;
       flex-shrink: 0;
       width: 100%;
-
-      .disclaimer-text {
-        font-size: 12px;
-        color: #9ca3af;
-        text-align: center;
-        padding: 8px;
-      }
     }
 
     .welcome-section {
