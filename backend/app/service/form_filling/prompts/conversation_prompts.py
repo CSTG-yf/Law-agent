@@ -73,8 +73,7 @@ SLOT_QUESTIONS = {
     "facts.termination_reason": "请问离职原因是什么？",
     "facts.work_injury": "请问是否有工伤情况？",
     "facts.arbitration_details": "请问是否申请过劳动仲裁？如有，请说明仲裁情况。",
-    "facts.is_migrant_worker": "请问您是否为农民工？",
-    "facts.legal_basis": "请问法律依据是什么？"
+    "facts.is_migrant_worker": "请问您是否为农民工？"
 }
 
 SLOT_CONFIRMATIONS = {

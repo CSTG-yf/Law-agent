@@ -94,6 +94,17 @@ class ConversationStrategy:
                 "suggested_next_action": None
             }
 
+        if state.current_block == "facts":
+            facts_block = state.blocks.get("facts")
+            if facts_block:
+                legal_basis_slot = facts_block.slots.get("legal_basis")
+                if not legal_basis_slot or not legal_basis_slot.value:
+                    return {
+                        "message": "事实与理由部分已填写完成。是否需要我为您自动生成法律条文依据？您可以回复\"生成法律条文\"或\"不需要\"。",
+                        "needs_clarification": False,
+                        "suggested_next_action": None
+                    }
+
         next_block = self._get_next_block(state)
         if next_block:
             completion_msg = self.get_completion_message(state.current_block)
@@ -284,6 +295,8 @@ class ConversationStrategy:
                 return "switch_to_preservation"
 
         if "完成" in user_input or "finish" in user_input_lower or "生成" in user_input:
+            if "法律条文" in user_input or "法律依据" in user_input or "legal_basis" in user_input_lower:
+                return "generate_legal_basis"
             return "generate_document"
 
         return None

@@ -119,7 +119,7 @@ class DocRenderer:
             slots = block_data.get("slots", {})
             for slot_name, slot_status in slots.items():
                 if slot_status.get("value") is not None:
-                    slot_values[slot_name] = slot_status["value"]
+                    slot_values[f"{block_id}.{slot_name}"] = slot_status["value"]
 
         inferred_data = session_data.get("inferred", {})
         for key, value in inferred_data.items():

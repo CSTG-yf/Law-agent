@@ -88,7 +88,7 @@ async def _auto_generate_legal_basis(session_id: str):
                 slot_name="legal_basis",
                 value=legal_basis,
                 confirmed=True,
-                source="auto_generated",
+                source="inferred",
                 confidence=0.9
             )
             logger.info(f"法律条文自动生成成功 - session_id: {session_id}")
@@ -372,9 +372,55 @@ async def send_message(request: SendMessageRequest):
                 return await generate_document_impl(request.session_id)
             elif user_intent == "confirm_remaining_claims":
                 _confirm_remaining_claims(slot_manager, request.session_id)
+            elif user_intent == "generate_legal_basis":
+                await _auto_generate_legal_basis(request.session_id)
+                state = slot_manager.get_session(request.session_id)
+                all_extracted_slots = {}
+                for block_id, block_data in state.blocks.items():
+                    for slot_name, slot_status in block_data.slots.items():
+                        if slot_status.value is not None:
+                            full_slot_name = f"{block_id}.{slot_name}"
+                            all_extracted_slots[full_slot_name] = slot_status.value
+                
+                current_block_data = state.blocks.get(state.current_block)
+                current_block_completion_rate = current_block_data.completion_rate if current_block_data else 0.0
+                
+                slot_manager.save_conversation_history(request.session_id, "user", request.message)
+                
+                missing_fields = []
+                template_def = slot_manager.get_template_definition(state.template_type)
+                if template_def:
+                    for block_def in template_def.blocks:
+                        block = state.blocks.get(block_def.block_id)
+                        if block:
+                            for slot_def in block_def.slots:
+                                if slot_def.required:
+                                    slot = block.slots.get(slot_def.name)
+                                    if not slot or slot.value is None:
+                                        missing_fields.append(f"{block_def.block_id}.{slot_def.name}")
+                
+                if missing_fields:
+                    message = f"法律条文已生成完成。还有一些信息需要补充：{', '.join(missing_fields[:3])}{'...' if len(missing_fields) > 3 else ''}。您可以继续补充，或者回复\"生成文档\"直接生成。"
+                else:
+                    message = "法律条文已生成完成。所有信息已填写完毕，您可以回复  \生成文档 下载相关文档。"
+                
+                slot_manager.save_conversation_history(request.session_id, "assistant", message)
+                
+                return {
+                    "code": HttpStatus.OK,
+                    "status": "success",
+                    "message": "",
+                    "data": SendMessageResponse(
+                        session_id=request.session_id,
+                        message=message,
+                        current_block=state.current_block,
+                        completion_rate=current_block_completion_rate,
+                        extracted_slots=all_extracted_slots,
+                        needs_clarification=False,
+                        suggested_next_action=None
+                    ).model_dump()
+                }
             elif user_intent == "skip_current_block":
-                if state.current_block == "facts":
-                    await _auto_generate_legal_basis(request.session_id)
                 slot_manager.finalize_block(request.session_id, state.current_block)
                 next_block = conversation_strategy._get_next_block(state)
                 if next_block:
@@ -481,8 +527,6 @@ async def send_message(request: SendMessageRequest):
         
         if suggested_next_action and suggested_next_action.startswith("switch_to_"):
             target_block = suggested_next_action.replace("switch_to_", "")
-            if state.current_block == "facts":
-                await _auto_generate_legal_basis(request.session_id)
             slot_manager.finalize_block(request.session_id, state.current_block)
             success = slot_manager.switch_block(request.session_id, target_block)
             if success:

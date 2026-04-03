@@ -31,6 +31,7 @@ backend/
 │   │       ├── config.py    # 环境配置管理接口路由
 │   │       ├── prompts.py   # 提示词配置查询接口路由
 │   │       ├── rag.py       # RAG文档管理接口路由
+│   │       ├── graph.py     # 知识图谱管理接口路由（上传/查询/统计）
 │   │       ├── form_filling.py # 表单填写接口路由
 │   │       └── auth.py      # 用户认证接口路由（注册/登录）
 │   └── service/             # 业务逻辑服务层
@@ -58,6 +59,12 @@ backend/
 │       │   ├── ollama_embedding.py      # Ollama文本嵌入服务
 │       │   └── reranker.py              # 检索结果重排序
 │       ├── vector_db.py      # 向量数据库（Chroma）的初始化与检索封装
+│       ├── graph/            # 知识图谱服务
+│       │   ├── graph_db.py              # Neo4j图数据库封装
+│       │   ├── graph_retriever.py       # 知识图谱检索器（实体/关系/相关实体搜索）
+│       │   ├── graph_builder_v2.py      # 知识图谱构建器（LLMGraphTransformer）
+│       │   ├── legal_graph_schema.py    # 法律图谱Schema定义（实体/关系类型）
+│       │   └── graph_prompts.py         # 知识图谱提示词配置
 │       ├── form_filling/    # 法律文书智能填充服务
 │       │   ├── slot_manager.py         # 槽位状态管理器（Redis持久化）
 │       │   ├── slot_extractor.py       # 语义提取引擎
@@ -68,7 +75,8 @@ backend/
 │       │       ├── extraction_prompt.py     # 槽位提取提示词模板
 │       │       └── conversation_prompts.py  # 对话引导语/槽位问题
 │       └── tasks/            # 异步任务处理
-│           └── document_tasks.py        # 文档处理异步任务
+│           ├── document_tasks.py        # 文档处理异步任务
+│           └── graph_tasks.py           # 知识图谱构建异步任务（Celery）
 │       ├── auth_service.py   # 用户认证服务（文件化存储用户数据）
 ├── scripts/
 │   ├── init-model.sh         # 模型初始化脚本
@@ -164,7 +172,7 @@ Agent回答流程详解（并行优化版）：
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           用户请求入口                                            │
 │                    POST /api/v1/chat/message                                     │
-│            (retrieval_strategy 由用户参数决定: vector/hybrid/mmr/multi_query)     │
+│            (retrieval_strategy 由用户参数决定: vector/hybrid/mmr/multi_query/graph) │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                         │
                                         ▼
@@ -272,10 +280,17 @@ Agent回答流程详解（并行优化版）：
 │   • hybrid: 混合检索 - 向量 + BM25关键词，RRF融合                                 │
 │   • mmr: MMR检索 - 平衡相关性和多样性                                            │
 │   • multi_query: 多查询检索 - 生成查询变体提高召回率                               │
+│   • graph: 知识图谱检索 - 结构化知识查询（实体/关系/相关实体搜索）                  │
 │                                                                                 │
 │   可选重排序: enable_rerank == true 时使用Cross-Encoder精排                       │
 │                                                                                 │
 │   输出: List[Document] (检索到的相关文档，作为模型回答的知识库参考)                │
+│                                                                                 │
+│   知识图谱检索详情:                                                               │
+│   • 实体搜索: 根据查询词搜索匹配的实体节点                                         │
+│   • 关系搜索: 搜索实体之间的关系路径                                              │
+│   • 相关实体搜索: 搜索与查询实体相关的其他实体                                     │
+│   • 返回格式: 转换为标准Document格式，包含实体/关系/相关实体信息                   │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                         │
                                         ▼
