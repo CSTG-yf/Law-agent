@@ -615,15 +615,25 @@ async def get_state(request: GetStateRequest):
 async def update_slot(request: UpdateSlotRequest):
     """
     手动更新槽位值
+    
+    支持多种 slot_name 格式：
+    - 一级式：phone（直接使用传入的 block_id）
+    - 二级式：social_loss.details（自动识别为 claims block）
+    - 完整路径式：claims.social_loss.details（自动解析 block_id 和 slot_name）
     """
     try:
         logger.info(f"更新槽位 - session_id: {request.session_id}, block_id: {request.block_id}, slot_name: {request.slot_name}, value: {request.value}")
 
         slot_manager = get_slot_manager()
+        
+        actual_block_id, actual_slot_name = _parse_slot_name(request.block_id, request.slot_name)
+        
+        logger.info(f"解析槽位 - 原始 block_id: {request.block_id}, slot_name: {request.slot_name} -> 实际 block_id: {actual_block_id}, slot_name: {actual_slot_name}")
+
         success = slot_manager.update_slot(
             session_id=request.session_id,
-            block_id=request.block_id,
-            slot_name=request.slot_name,
+            block_id=actual_block_id,
+            slot_name=actual_slot_name,
             value=request.value,
             confirmed=request.confirmed,
             source="user_input",
@@ -633,13 +643,13 @@ async def update_slot(request: UpdateSlotRequest):
         if not success:
             raise HTTPException(
                 status_code=HttpStatus.BAD_REQUEST,
-                detail="更新槽位失败"
+                detail="更新槽位失败，请检查 block_id 和 slot_name 是否正确"
             )
 
         response = UpdateSlotResponse(
             session_id=request.session_id,
-            block_id=request.block_id,
-            slot_name=request.slot_name,
+            block_id=actual_block_id,
+            slot_name=actual_slot_name,
             success=True,
             message="槽位更新成功"
         )
@@ -660,6 +670,55 @@ async def update_slot(request: UpdateSlotRequest):
             status_code=HttpStatus.INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+
+def _parse_slot_name(block_id: str, slot_name: str) -> tuple:
+    """
+    智能解析槽位名称，支持多种格式
+    
+    Args:
+        block_id: 传入的业务块 ID
+        slot_name: 传入的槽位名称
+        
+    Returns:
+        tuple: (实际 block_id, 实际 slot_name)
+        
+    支持的格式：
+    1. 一级式：block_id="plaintiff", slot_name="phone" -> ("plaintiff", "phone")
+    2. 二级式：block_id="plaintiff", slot_name="social_loss.details" -> ("claims", "social_loss.details")
+    3. 完整路径式：block_id="plaintiff", slot_name="claims.social_loss.details" -> ("claims", "social_loss.details")
+    """
+    CLAIMS_SUB_SLOTS = {
+        "salary.active", "salary.details",
+        "double_salary.active", "double_salary.details",
+        "overtime.active", "overtime.details",
+        "annual_leave.active", "annual_leave.details",
+        "social_loss.active", "social_loss.details",
+        "termination_compensation.active", "termination_compensation.details",
+        "illegal_termination_damages.active", "illegal_termination_damages.details",
+        "other_requests", "litigation_cost_burden"
+    }
+    
+    BLOCK_IDS = {"plaintiff", "agent", "service", "defendant", "claims", "preservation", "facts"}
+    
+    if "." in slot_name:
+        parts = slot_name.split(".")
+        
+        if len(parts) >= 2 and parts[0] in BLOCK_IDS:
+            actual_block_id = parts[0]
+            actual_slot_name = ".".join(parts[1:])
+            return actual_block_id, actual_slot_name
+        
+        potential_sub_slot = slot_name
+        if potential_sub_slot in CLAIMS_SUB_SLOTS:
+            return "claims", slot_name
+        
+        if len(parts) == 2:
+            potential_block = parts[0]
+            if potential_block in BLOCK_IDS:
+                return potential_block, parts[1]
+    
+    return block_id, slot_name
 
 
 @router.post("/generate", response_model=dict)

@@ -4,13 +4,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, View, Search, Refresh } from '@element-plus/icons-vue'
 import pluginIcon from '../../assets/plugin.svg'
 import { 
-  getAllToolsAPI, 
   getOwnToolsAPI, 
   createToolAPI, 
   updateToolAPI, 
   deleteToolAPI,
   getDefaultToolLogoAPI,
   uploadFileAPI,
+  getChatToolsAPI,
   type ToolResponse 
 } from '../../apis/tool'
 import { useUserStore } from '../../store/user'
@@ -20,6 +20,9 @@ interface Tool extends ToolResponse {
   user_id: string
   create_time?: string
   update_time?: string
+  // Chat 工具额外字段
+  category?: string
+  enabled?: boolean
 }
 
 // 创建工具表单类型
@@ -382,21 +385,37 @@ const handleSchemaChange = () => {
 const fetchTools = async () => {
   loading.value = true
   try {
-    let response
-    switch (activeTab.value) {
-      case 'own':
-        response = await getOwnToolsAPI()
-        break
-      default:
-        response = await getAllToolsAPI()
-        break
-    }
-    
-    if (response.data.status_code === 200) {
-      tools.value = response.data.data || []
-      console.log('获取到的工具数据:', tools.value)
+    if (activeTab.value === 'own') {
+      // 我的工具：使用原有自定义工具接口
+      const response = await getOwnToolsAPI()
+      if (response.data.status_code === 200) {
+        tools.value = response.data.data || []
+        console.log('获取到的我的工具数据:', tools.value)
+      } else {
+        ElMessage.error(response.data.status_message || '获取工具列表失败')
+      }
     } else {
-      ElMessage.error(response.data.status_message || '获取工具列表失败')
+      // 全部工具：使用 Chat 工具列表接口
+      const response = await getChatToolsAPI()
+      if (response.data.code === 200) {
+        const chatTools = response.data.data.tools || []
+        // 将 Chat 工具映射到前端通用 Tool 结构
+        tools.value = chatTools.map((item) => ({
+          tool_id: item.name,
+          name: item.name,
+          // 名称优先显示分类，没有分类则回退英文 name
+          display_name: item.category || item.name,
+          description: item.description,
+          // Chat 工具视为系统工具，禁止编辑/删除
+          user_id: '0',
+          logo_url: '',
+          category: item.category,
+          enabled: item.enabled,
+        }))
+        console.log('获取到的 Chat 工具数据:', tools.value)
+      } else {
+        ElMessage.error(response.data.message || '获取工具列表失败')
+      }
     }
   } catch (error) {
     console.error('获取工具列表失败:', error)
@@ -684,7 +703,7 @@ onMounted(() => {
             </span>
           </template>
         </el-tab-pane>
-        <el-tab-pane label="我的工具" name="own">
+        <!-- <el-tab-pane label="我的工具" name="own">
           <template #label>
             <span class="tab-label">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -696,7 +715,7 @@ onMounted(() => {
               我的工具
             </span>
           </template>
-        </el-tab-pane>
+        </el-tab-pane> -->
       </el-tabs>
     </div>
 
@@ -724,9 +743,8 @@ onMounted(() => {
           <div class="col-icon">
             <div class="tool-avatar">
               <img 
-                :src="tool.logo_url || '/src/assets/tool/default.png'" 
+                :src="tool.logo_url || pluginIcon" 
                 :alt="tool.display_name"
-                @error="(e) => { const target = e.target as HTMLImageElement; target.src = '/src/assets/tool/default.png' }"
               />
             </div>
           </div>

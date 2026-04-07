@@ -259,3 +259,283 @@ class Neo4jGraphStore:
                 "node_types": [],
                 "relationship_types": []
             }
+
+    def get_visualization_data(
+        self,
+        node_types: List[str] = None,
+        relation_types: List[str] = None,
+        node_limit: int = 100,
+        depth: int = 2,
+        search_term: str = None
+    ) -> Dict[str, Any]:
+        """
+        获取可视化数据（NVL 兼容格式）
+        
+        Args:
+            node_types: 过滤节点类型
+            relation_types: 过滤关系类型
+            node_limit: 节点数量限制
+            depth: 关系深度
+            search_term: 搜索关键词
+            
+        Returns:
+            包含 nodes 和 relationships 的字典
+        """
+        if not self.driver:
+            logger.error("数据库未连接")
+            return {"nodes": [], "relationships": []}
+        
+        try:
+            nodes = []
+            relationships = []
+            node_ids = set()
+            rel_ids = set()
+            
+            node_filter = ""
+            if node_types:
+                node_filter = f"WHERE labels(n)[0] IN {node_types}"
+            
+            if search_term:
+                if node_filter:
+                    node_filter += f" AND n.name CONTAINS $search_term"
+                else:
+                    node_filter = "WHERE n.name CONTAINS $search_term"
+            
+            node_query = f"""
+            MATCH (n)
+            {node_filter}
+            RETURN n
+            LIMIT $limit
+            """
+            
+            params = {"limit": node_limit}
+            if search_term:
+                params["search_term"] = search_term
+            
+            node_results = self.execute_query(node_query, params)
+            
+            for record in node_results:
+                node_data = record.get("n", {})
+                node_id = node_data.get("id") or node_data.get("name", "")
+                if node_id and node_id not in node_ids:
+                    node_ids.add(node_id)
+                    nodes.append({
+                        "id": node_id,
+                        "labels": node_data.get("labels", []),
+                        "properties": {k: v for k, v in node_data.items() if k not in ["id", "labels"]}
+                    })
+            
+            if node_ids:
+                depth_query = f"""
+                MATCH (n)
+                WHERE n.id IN $node_ids OR n.name IN $node_ids
+                CALL {{
+                    WITH n
+                    MATCH (n)-[r*1..{depth}]-(related)
+                    RETURN related, r
+                    LIMIT $limit
+                }}
+                RETURN DISTINCT related, r
+                """
+                
+                depth_results = self.execute_query(depth_query, {
+                    "node_ids": list(node_ids),
+                    "limit": node_limit * 2
+                })
+                
+                for record in depth_results:
+                    related_node = record.get("related", {})
+                    related_id = related_node.get("id") or related_node.get("name", "")
+                    
+                    if related_id and related_id not in node_ids:
+                        node_ids.add(related_id)
+                        nodes.append({
+                            "id": related_id,
+                            "labels": related_node.get("labels", []),
+                            "properties": {k: v for k, v in related_node.items() if k not in ["id", "labels"]}
+                        })
+                    
+                    rel_list = record.get("r", [])
+                    if isinstance(rel_list, list):
+                        for rel in rel_list:
+                            rel_id = rel.get("id", "")
+                            if rel_id and rel_id not in rel_ids:
+                                rel_type = rel.get("type", "")
+                                if relation_types and rel_type not in relation_types:
+                                    continue
+                                rel_ids.add(rel_id)
+                                relationships.append({
+                                    "id": rel_id,
+                                    "type": rel_type,
+                                    "startNode": rel.get("startNode", ""),
+                                    "endNode": rel.get("endNode", ""),
+                                    "properties": rel.get("properties", {})
+                                })
+            
+            if node_ids:
+                rel_query = f"""
+                MATCH (a)-[r]->(b)
+                WHERE (a.id IN $node_ids OR a.name IN $node_ids)
+                  AND (b.id IN $node_ids OR b.name IN $node_ids)
+                RETURN a, b, r
+                LIMIT $limit
+                """
+                
+                rel_results = self.execute_query(rel_query, {
+                    "node_ids": list(node_ids),
+                    "limit": node_limit * 3
+                })
+                
+                for record in rel_results:
+                    rel_data = record.get("r", {})
+                    rel_id = rel_data.get("id", "")
+                    rel_type = rel_data.get("type", "")
+                    
+                    if relation_types and rel_type not in relation_types:
+                        continue
+                    
+                    if rel_id and rel_id not in rel_ids:
+                        rel_ids.add(rel_id)
+                        relationships.append({
+                            "id": rel_id,
+                            "type": rel_type,
+                            "startNode": rel_data.get("startNode", ""),
+                            "endNode": rel_data.get("endNode", ""),
+                            "properties": rel_data.get("properties", {})
+                        })
+            
+            logger.info(
+                f"获取可视化数据成功 - "
+                f"nodes: {len(nodes)}, relationships: {len(relationships)}"
+            )
+            
+            return {
+                "nodes": nodes,
+                "relationships": relationships
+            }
+            
+        except Exception as e:
+            logger.error(f"获取可视化数据失败 - error: {str(e)}")
+            return {"nodes": [], "relationships": []}
+    
+    def get_visualization_data_v2(
+        self,
+        node_types: List[str] = None,
+        relation_types: List[str] = None,
+        node_limit: int = 100,
+        depth: int = 2,
+        search_term: str = None
+    ) -> Dict[str, Any]:
+        """
+        获取可视化数据（NVL 兼容格式）- 优化版本
+        
+        使用单次查询获取所有数据，性能更好
+        
+        Args:
+            node_types: 过滤节点类型
+            relation_types: 过滤关系类型
+            node_limit: 节点数量限制
+            depth: 关系深度
+            search_term: 搜索关键词
+            
+        Returns:
+            包含 nodes 和 relationships 的字典
+        """
+        if not self.driver:
+            logger.error("数据库未连接")
+            return {"nodes": [], "relationships": []}
+        
+        try:
+            node_filter_parts = []
+            params = {"limit": node_limit, "depth": depth}
+            
+            if node_types:
+                params["node_types"] = node_types
+                node_filter_parts.append("labels(n)[0] IN $node_types")
+            
+            if search_term:
+                params["search_term"] = search_term
+                node_filter_parts.append("n.name CONTAINS $search_term")
+            
+            node_filter = "WHERE " + " AND ".join(node_filter_parts) if node_filter_parts else ""
+            
+            query = f"""
+            MATCH (n)
+            {node_filter}
+            WITH n LIMIT $limit
+            CALL {{
+                WITH n
+                MATCH path = (n)-[r*1..{depth}]-(connected)
+                RETURN connected, relationships(path) as rels
+            }}
+            WITH n, connected, rels
+            UNWIND rels as rel
+            WITH DISTINCT n, connected, rel
+            RETURN 
+                n.id as node_id,
+                labels(n) as node_labels,
+                properties(n) as node_props,
+                connected.id as connected_id,
+                labels(connected) as connected_labels,
+                properties(connected) as connected_props,
+                elementId(rel) as rel_id,
+                type(rel) as rel_type,
+                startNode(rel).id as start_id,
+                endNode(rel).id as end_id,
+                properties(rel) as rel_props
+            """
+            
+            results = self.execute_query(query, params)
+            
+            nodes_map = {}
+            relationships = []
+            rel_ids = set()
+            
+            for record in results:
+                node_id = record.get("node_id") or record.get("node_labels", [""])[0]
+                if node_id and node_id not in nodes_map:
+                    nodes_map[node_id] = {
+                        "id": node_id,
+                        "labels": record.get("node_labels", []),
+                        "properties": record.get("node_props", {})
+                    }
+                
+                connected_id = record.get("connected_id")
+                if connected_id and connected_id not in nodes_map:
+                    nodes_map[connected_id] = {
+                        "id": connected_id,
+                        "labels": record.get("connected_labels", []),
+                        "properties": record.get("connected_props", {})
+                    }
+                
+                rel_id = record.get("rel_id", "")
+                rel_type = record.get("rel_type", "")
+                
+                if relation_types and rel_type not in relation_types:
+                    continue
+                
+                if rel_id and rel_id not in rel_ids:
+                    rel_ids.add(rel_id)
+                    relationships.append({
+                        "id": rel_id,
+                        "type": rel_type,
+                        "startNode": record.get("start_id", ""),
+                        "endNode": record.get("end_id", ""),
+                        "properties": record.get("rel_props", {})
+                    })
+            
+            nodes = list(nodes_map.values())
+            
+            logger.info(
+                f"获取可视化数据成功 - "
+                f"nodes: {len(nodes)}, relationships: {len(relationships)}"
+            )
+            
+            return {
+                "nodes": nodes,
+                "relationships": relationships
+            }
+            
+        except Exception as e:
+            logger.error(f"获取可视化数据失败 - error: {str(e)}")
+            return {"nodes": [], "relationships": []}

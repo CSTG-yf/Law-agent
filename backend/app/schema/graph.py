@@ -51,3 +51,35 @@ class GraphDocumentInfo(BaseModel):
     uploaded_at: str
     status: str
     error_message: Optional[str] = None
+
+
+class VisualizationNode(BaseModel):
+    id: str = Field(..., description="节点ID")
+    labels: List[str] = Field(default_factory=list, description="节点标签列表")
+    properties: Dict[str, Any] = Field(default_factory=dict, description="节点属性")
+
+
+class VisualizationRelationship(BaseModel):
+    id: str = Field(..., description="关系ID")
+    type: str = Field(..., description="关系类型")
+    startNode: str = Field(..., description="起始节点ID")
+    endNode: str = Field(..., description="目标节点ID")
+    properties: Dict[str, Any] = Field(default_factory=dict, description="关系属性")
+
+
+class VisualizationRequest(BaseModel):
+    node_types: Optional[List[str]] = Field(None, description="过滤节点类型，为空则返回所有类型")
+    relation_types: Optional[List[str]] = Field(None, description="过滤关系类型，为空则返回所有类型")
+    node_limit: Optional[int] = Field(100, description="节点数量限制", ge=1, le=1000)
+    depth: Optional[int] = Field(2, description="关系深度（1-3）", ge=1, le=3)
+    search_term: Optional[str] = Field(None, description="搜索关键词，匹配节点名称")
+
+
+class VisualizationResponse(BaseModel):
+    success: bool
+    message: str
+    code: int = 200
+    nodes: List[VisualizationNode]
+    relationships: List[VisualizationRelationship]
+    total_nodes: int
+    total_relationships: int
