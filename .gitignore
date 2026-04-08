@@ -37,3 +37,4 @@ backend/.env
 backend/logs/
 backend/outputs/
 backend/data/users.json
+backend/graph_data

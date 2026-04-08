@@ -1,6 +1,7 @@
 from celery import Task
 from typing import Dict, Any
 from pathlib import Path
+from datetime import datetime
 import asyncio
 import traceback
 from app.celery_config import celery_app
@@ -99,7 +100,6 @@ def build_graph_task(
             nodes_count=0,
             relationships_count=0
         )
-        graph_document_manager.update_document_status(file_hash, "processing")
         
         self.update_state(
             state='PROGRESS',
@@ -146,10 +146,19 @@ def build_graph_task(
             nodes_count = result.get("nodes_count", 0)
             relationships_count = result.get("relationships_count", 0)
             
-            graph_document_manager.update_document_stats(
+            doc_info = {
+                "file_name": file_name,
+                "file_path": file_path,
+                "document_type": document_type,
+                "nodes_count": nodes_count,
+                "relationships_count": relationships_count,
+                "uploaded_at": datetime.now().isoformat(),
+                "status": "completed"
+            }
+            
+            graph_document_manager.save_document(
                 file_hash=file_hash,
-                nodes_count=nodes_count,
-                relationships_count=relationships_count
+                doc_info=doc_info
             )
             
             self.update_state(
@@ -179,12 +188,6 @@ def build_graph_task(
         else:
             error_msg = result.get('error', '未知错误')
             
-            graph_document_manager.update_document_status(
-                file_hash=file_hash,
-                status="failed",
-                error_message=error_msg
-            )
-            
             logger.error(
                 f"知识图谱构建失败 - "
                 f"task_id: {task_id}, error: {error_msg}"
@@ -206,13 +209,6 @@ def build_graph_task(
             f"知识图谱任务异常 - "
             f"task_id: {task_id}, error: {error_msg}\n{error_trace}"
         )
-        
-        if file_hash:
-            graph_document_manager.update_document_status(
-                file_hash=file_hash,
-                status="failed",
-                error_message=error_msg
-            )
         
         return {
             'task_id': task_id,
