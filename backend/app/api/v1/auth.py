@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
+from typing import Optional
 from app.schema.auth import RegisterRequest, LoginRequest, AuthResponse
 from app.service import auth_service
 from app.core.constants import HttpStatus
@@ -62,6 +63,28 @@ def login(request: LoginRequest) -> dict:
         }
     except Exception as e:
         logger.error(f"登录异常 - username: {request.username}, 错误: {e}")
+        return {
+            "code": HttpStatus.INTERNAL_SERVER_ERROR,
+            "status": "error",
+            "message": "服务器内部错误",
+            "data": None,
+        }
+
+
+@router.post("/logout")
+def logout(authorization: Optional[str] = Header(None)) -> dict:
+    logger.info("收到登出请求")
+
+    try:
+        logger.info("用户登出成功")
+        return {
+            "code": HttpStatus.OK,
+            "status": "success",
+            "message": "登出成功",
+            "data": None,
+        }
+    except Exception as e:
+        logger.error(f"登出异常 - 错误: {e}")
         return {
             "code": HttpStatus.INTERNAL_SERVER_ERROR,
             "status": "error",

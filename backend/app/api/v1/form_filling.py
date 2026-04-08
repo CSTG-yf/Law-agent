@@ -900,12 +900,19 @@ async def get_conversation_history(request: GetHistoryRequest):
         history = slot_manager.get_conversation_history(request.session_id, request.limit)
         history_entries = [HistoryEntry(**h) for h in history]
         logger.info(f"查询对话历史成功 - session_id: {request.session_id}, count: {len(history_entries)}")
+        
+        template_type = state.get("template_type", "")
+        template_def = slot_manager.get_template_definition(template_type)
+        template_name = template_def.template_name if template_def else ""
+        
         return {
             "code": HttpStatus.OK,
             "status": "success",
             "message": "",
             "data": {
                 "session_id": request.session_id,
+                "template_type": template_type,
+                "template_name": template_name,
                 "history": [h.model_dump() for h in history_entries],
                 "total": len(history_entries)
             }
