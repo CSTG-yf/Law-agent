@@ -17,7 +17,7 @@ import { useAgentCardStore } from "../store/agent_card"
 import { useUserStore } from "../store/user"
 import { getAgentsAPI } from "../apis/agent"
 import { logoutAPI, getUserInfoAPI } from "../apis/auth"
-import { Agent } from "../type"
+import { Agent } from "../type/homepage"
 
 const agentCardStore = useAgentCardStore()
 const userStore = useUserStore()
@@ -71,7 +71,7 @@ const isAppCenterActive = computed(() => route.path.startsWith('/homepage'))
 // 初始化用户状态
 onMounted(async () => {
   userStore.initUserState()
-  
+
   // 如果已登录但没有头像，则尝试获取用户信息
   if (userStore.isLoggedIn && userStore.userInfo && !userStore.userInfo.avatar) {
     try {
@@ -87,7 +87,7 @@ onMounted(async () => {
       console.error('初始化时获取用户信息失败:', error)
     }
   }
-  
+
   updateList()
 })
 
@@ -95,7 +95,7 @@ const godefault = () => {
   agentCardStore.clear()
   router.push("/")
 }
-  
+
 const updateList = async () => {
   try {
     const response = await getAgentsAPI()
@@ -108,6 +108,7 @@ const updateList = async () => {
 const goCurrent = (item: string) => {
   const routes: Record<string, string> = {
     "homepage": "/homepage",
+    "formfill": "/formfill",
     "conversation": "/conversation",
     "agent": "/agent",
     "mcp-server": "/mcp-server",
@@ -118,7 +119,7 @@ const goCurrent = (item: string) => {
     "workspace": "/workspace",
     "dashboard": "/dashboard"
   }
-  
+
   router.push(routes[item] || "/")
 }
 
@@ -157,6 +158,13 @@ const handleAvatarError = (event: Event) => {
   }
 }
 
+// 收起or展开左侧菜单
+const showSidebar = ref(true)
+const toggleSidebar = () => {
+  showSidebar.value = !showSidebar.value
+}
+
+
 watch(
   route,
   (val) => {
@@ -185,13 +193,9 @@ watch(
           <el-dropdown @command="handleUserCommand" trigger="click">
             <div class="user-avatar-wrapper">
               <div class="user-avatar">
-                <img
-                  :src="userStore.userInfo?.avatar || '/src/assets/user.svg'"
-                  alt="用户头像"
-                  style="width: 40px; height: 40px; border-radius: 50%"
-                  @error="handleAvatarError"
-                  referrerpolicy="no-referrer"
-                />
+                <img :src="userStore.userInfo?.avatar || '/src/assets/user.svg'" alt="用户头像"
+                  style="width: 40px; height: 40px; border-radius: 50%" @error="handleAvatarError"
+                  referrerpolicy="no-referrer" />
               </div>
             </div>
             <template #dropdown>
@@ -199,9 +203,9 @@ watch(
                 <el-dropdown-item command="profile" :icon="User">
                   个人资料
                 </el-dropdown-item>
-<!--                <el-dropdown-item command="settings" :icon="Setting">-->
-<!--                  系统设置-->
-<!--                </el-dropdown-item>-->
+                <!--                <el-dropdown-item command="settings" :icon="Setting">-->
+                <!--                  系统设置-->
+                <!--                </el-dropdown-item>-->
                 <el-dropdown-item divided command="logout" :icon="SwitchButton">
                   退出登录
                 </el-dropdown-item>
@@ -212,31 +216,11 @@ watch(
       </div>
     </div>
     <div class="ai-main">
-      <el-col :span="2">
-        <div class="sidebar-content">
-          <el-menu
-            active-text-color="#6b9eff"
-            background-color="#f4f5f8"
-            class="el-menu-vertical-demo"
-            :default-active="current"
-            text-color="#909399"
-          >
-            <!-- <el-menu-item index="workspace" @click="goCurrent('workspace')">
-              <template #title>
-                <el-icon>
-                  <img src="../assets/workspace.svg" width="22px" height="22px" />
-                </el-icon>
-                <span>工作台</span>
-              </template>
-            </el-menu-item> -->
-            <!-- <el-menu-item index="homepage" @click="goCurrent('homepage')">
-              <template #title>
-                <el-icon>
-                  <img src="../assets/explore.svg" width="22px" height="22px" />
-                </el-icon>
-                <span>探索</span>
-              </template>
-            </el-menu-item> -->
+      <el-col :span="2" :class="{ 'collapsed-col': !showSidebar }">
+        <div class="sidebar-content" :class="{ collapsed: !showSidebar }">
+
+          <el-menu active-text-color="#6b9eff" background-color="#f4f5f8" class="el-menu-vertical-demo"
+            :default-active="current" text-color="#909399">
             <el-menu-item index="homepage" @click="goCurrent('homepage')">
               <template #title>
                 <el-icon>
@@ -245,30 +229,14 @@ watch(
                 <span>会话</span>
               </template>
             </el-menu-item>
-            <!-- <el-menu-item index="conversation" @click="goCurrent('conversation')">
+            <el-menu-item index="formfill" @click="goCurrent('formfill')">
               <template #title>
                 <el-icon>
-                  <img src="../assets/dialog.svg" width="22px" height="22px" />
+                  <img src="../assets/formfill.svg" width="22px" height="22px" />
                 </el-icon>
-                <span>会话</span>
-              </template>
-            </el-menu-item> -->
-            <!-- <el-menu-item index="agent" @click="goCurrent('agent')">
-              <template #title>
-                <el-icon>
-                  <img src="../assets/robot.svg" width="22px" height="22px" />
-                </el-icon>
-                <span>智能体</span>
+                <span>文书填写</span>
               </template>
             </el-menu-item>
-            <el-menu-item index="mcp-server" @click="goCurrent('mcp-server')">
-              <template #title>
-                <el-icon>
-                  <img src="../assets/mcp.svg" width="22px" height="22px" />
-                </el-icon>
-                <span>MCP</span>
-              </template>
-            </el-menu-item> -->
             <el-menu-item index="knowledge" @click="goCurrent('knowledge')">
               <template #title>
                 <el-icon>
@@ -293,14 +261,6 @@ watch(
                 <span>Skill</span>
               </template>
             </el-menu-item>
-            <!-- <el-menu-item index="model" @click="goCurrent('model')">
-              <template #title>
-                <el-icon>
-                  <img src="../assets/model.svg" width="22px" height="22px" />
-                </el-icon>
-                <span>模型</span>
-              </template>
-            </el-menu-item> -->
             <el-menu-item index="dashboard" @click="goCurrent('dashboard')">
               <template #title>
                 <el-icon>
@@ -310,38 +270,25 @@ watch(
               </template>
             </el-menu-item>
           </el-menu>
-          
+
           <!-- 底部帮助链接 -->
           <div class="sidebar-footer">
             <div class="help-links">
-              <a
-                href="https://github.com/Shy2593666979/AgentChat"
-                target="_blank"
-                class="help-link"
-                title="GitHub 仓库"
-              >
-                <img
-                  src="../assets/github.png"
-                  alt="GitHub"
-                  class="help-icon"
-                />
+              <a href="https://github.com/Shy2593666979/AgentChat" target="_blank" class="help-link" title="GitHub 仓库">
+                <img src="../assets/github.png" alt="GitHub" class="help-icon" />
               </a>
-              <a
-                href="https://shy2593666979.github.io/agentchat-docs/"
-                target="_blank"
-                class="help-link"
-                title="帮助文档"
-              >
-                <img
-                  src="../assets/help.png"
-                  alt="帮助文档"
-                  class="help-icon"
-                />
+              <a href="https://shy2593666979.github.io/agentchat-docs/" target="_blank" class="help-link" title="帮助文档">
+                <img src="../assets/help.png" alt="帮助文档" class="help-icon" />
               </a>
             </div>
           </div>
+
+          <el-button @click="toggleSidebar" class="toggle-sidebar-btn">
+            {{ showSidebar ? '<' : '>' }} </el-button>
+
         </div>
       </el-col>
+
       <div class="content">
         <router-view></router-view>
       </div>
@@ -351,11 +298,12 @@ watch(
 
 <style lang="scss" scoped>
 .ai-body {
-@import url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Zhi+Mang+Xing&family=Ma+Shan+Zheng&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Zhi+Mang+Xing&family=Ma+Shan+Zheng&display=swap');
 }
+
 .ai-body {
   overflow: hidden;
-  
+
   .ai-nav {
     display: flex;
     justify-content: space-between;
@@ -366,7 +314,7 @@ watch(
     box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
     position: relative;
     z-index: 3000;
-    
+
     .left {
       display: flex;
       align-items: center;
@@ -374,14 +322,14 @@ watch(
       color: #0f172a;
       cursor: pointer;
       transition: all 0.3s ease;
-      
+
       &:hover {
         opacity: 0.8;
       }
-      
+
       .item-img {
         margin-right: 0;
-        
+
         .logo {
           width: 32px;
           height: 32px;
@@ -390,7 +338,7 @@ watch(
           transition: all 0.3s ease;
         }
       }
-      
+
       /* 移除平台大字后的间距收紧 */
 
       .nav-links {
@@ -450,19 +398,20 @@ watch(
 
         /* 更美观的主题色块：工作台与应用中心区分配色，带磨砂效果 */
         .workspace-link {
-          background: linear-gradient(135deg, rgba(59,130,246,0.18), rgba(99,102,241,0.18));
-          border-color: rgba(99,102,241,0.24);
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(99, 102, 241, 0.18));
+          border-color: rgba(99, 102, 241, 0.24);
           backdrop-filter: saturate(120%) blur(3px);
 
           &:hover {
-            background: linear-gradient(135deg, rgba(59,130,246,0.26), rgba(99,102,241,0.26));
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.26), rgba(99, 102, 241, 0.26));
           }
 
           &.active {
-            background: #eef2ff; /* very light indigo */
+            background: #eef2ff;
+            /* very light indigo */
             border-color: #c7d2fe;
             color: #0f172a;
-            box-shadow: inset 0 0 0 1px rgba(99,102,241,0.25);
+            box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.25);
 
             &::after {
               content: '';
@@ -472,25 +421,26 @@ watch(
               bottom: -5px;
               height: 2px;
               border-radius: 2px;
-              background: rgba(99,102,241,0.6);
+              background: rgba(99, 102, 241, 0.6);
             }
           }
         }
 
         .appcenter-link {
-          background: linear-gradient(135deg, rgba(16,185,129,0.16), rgba(59,130,246,0.16));
-          border-color: rgba(59,130,246,0.22);
+          background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(59, 130, 246, 0.16));
+          border-color: rgba(59, 130, 246, 0.22);
           backdrop-filter: saturate(120%) blur(3px);
 
           &:hover {
-            background: linear-gradient(135deg, rgba(16,185,129,0.24), rgba(59,130,246,0.24));
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.24), rgba(59, 130, 246, 0.24));
           }
 
           &.active {
-            background: #ebf5ff; /* very light blue */
+            background: #ebf5ff;
+            /* very light blue */
             border-color: #bfdbfe;
             color: #0f172a;
-            box-shadow: inset 0 0 0 1px rgba(59,130,246,0.22);
+            box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.22);
 
             &::after {
               content: '';
@@ -500,13 +450,13 @@ watch(
               bottom: -5px;
               height: 2px;
               border-radius: 2px;
-              background: rgba(59,130,246,0.55);
+              background: rgba(59, 130, 246, 0.55);
             }
           }
         }
 
         .app-center {
-        position: relative;
+          position: relative;
         }
 
         .brand-title {
@@ -522,7 +472,7 @@ watch(
           text-shadow: 0 3px 12px rgba(59, 130, 246, 0.3);
           user-select: none;
         }
-        
+
         .mega-menu {
           position: absolute;
           top: 48px;
@@ -593,18 +543,29 @@ watch(
           }
         }
       }
-      
+
       @keyframes shine-rainbow {
-        0% { background-position: 0% center; filter: hue-rotate(0deg); }
-        50% { background-position: 100% center; filter: hue-rotate(10deg); }
-        100% { background-position: 0% center; filter: hue-rotate(0deg); }
+        0% {
+          background-position: 0% center;
+          filter: hue-rotate(0deg);
+        }
+
+        50% {
+          background-position: 100% center;
+          filter: hue-rotate(10deg);
+        }
+
+        100% {
+          background-position: 0% center;
+          filter: hue-rotate(0deg);
+        }
       }
     }
 
     .right {
       display: flex;
       align-items: center;
-      
+
       .user-info {
         .user-avatar-wrapper {
           display: flex;
@@ -615,20 +576,20 @@ watch(
           backdrop-filter: blur(10px);
           cursor: pointer;
           transition: all 0.3s ease;
-          
+
           &:hover {
             background: rgba(255, 255, 255, 0.25);
             transform: translateY(-2px);
             box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
           }
-          
+
           .user-avatar {
             img {
               border: 2px solid rgba(255, 255, 255, 0.5);
               object-fit: cover;
               box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
               transition: all 0.3s ease;
-              
+
               &:hover {
                 border-color: rgba(255, 255, 255, 0.8);
                 transform: scale(1.05);
@@ -639,86 +600,159 @@ watch(
       }
     }
   }
-  
+
   .ai-main {
     display: flex;
     height: calc(100vh - 64px);
     background-color: #f5f7fa;
-    
+
     :deep(.el-col-2) {
       display: flex;
+      flex: 0 0 180px;
       width: 180px;
       min-width: 180px;
     }
-    
+
+    /* 当侧边栏折叠时，强制列宽与侧边栏宽度一致，避免内容被覆盖 */
+    .collapsed-col {
+      flex: 0 0 56px !important;
+      width: 56px !important;
+      min-width: 56px !important;
+    }
+
     .sidebar-content {
+      position: relative;
       display: flex;
       flex-direction: column;
       height: 100%;
-      width: 100%;
+      width: auto;
+    
       background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
       border-right: 1px solid #e2e8f0;
       padding: 3px 0;
       box-sizing: border-box;
       box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
-    }
+      transition: width 0.22s ease, min-width 0.22s ease;
 
-    .sidebar-footer {
-      margin-top: auto;
-      padding: 0 24px 24px;
-      display: none; /* 暂时隐藏帮助链接 */
-      justify-content: center;
-      align-items: center;
+      &.collapsed {
+        width: 56px;
+        min-width: 56px;
+        padding: 6px 0;
+      }
 
-      .help-links {
+      /* 折叠时只显示图标，隐藏文本并居中图标 */
+      &.collapsed .el-menu-item span {
+        display: none;
+      }
+
+      &.collapsed .el-menu-item {
+        padding: 0;
+        height: 56px;
+        width: 56px;
+        margin: 10px auto;
+        border-radius: 12px;
+        justify-content: center;
+      }
+
+      &.collapsed .el-menu-item .el-icon {
+        margin-right: 0;
+        width: 36px;
+        height: 36px;
         display: flex;
-        gap: 16px;
+        align-items: center;
+        justify-content: center;
+      }
 
-        .help-link {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 48px;
-          height: 48px;
-          border: 2px solid rgba(59, 130, 246, 0.2);
-          border-radius: 16px;
-          padding: 10px;
-          transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-          background: rgba(255, 255, 255, 0.8);
-          backdrop-filter: blur(20px);
+      .toggle-sidebar-btn {
+        position: absolute;
+        right: -12px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        padding: 0;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        box-shadow: 0 6px 18px rgba(2, 6, 23, 0.08);
+        color: #334155;
+        cursor: pointer;
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
 
-          &:hover {
-            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(147, 51, 234, 0.15) 100%);
-            border-color: rgba(59, 130, 246, 0.5);
-            transform: translateY(-3px) scale(1.1);
-            box-shadow: 0 12px 24px rgba(59, 130, 246, 0.25);
-          }
+        &:hover {
+          transform: translateY(-50%) scale(1.03);
+          box-shadow: 0 10px 24px rgba(2, 6, 23, 0.12);
+        }
 
-          .help-icon {
-            width: 26px;
-            height: 26px;
-            transition: all 0.4s ease;
-            filter: saturate(0.8);
-          }
-          
-          &:hover .help-icon {
-            filter: saturate(1.3) hue-rotate(10deg);
-            transform: scale(1.1);
-          }
+        @media (max-width: 960px) {
+          right: -18px;
         }
       }
     }
 
-    .content {
-      flex: 1;
-      overflow-y: auto;
-      background-color: #ffffff;
-      border-radius: 20px 0 0 0;
-      margin-left: 4px;
-      box-shadow: -4px 0 16px rgba(0, 0, 0, 0.05);
+
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 0 24px 24px;
+    display: none;
+    /* 暂时隐藏帮助链接 */
+    justify-content: center;
+    align-items: center;
+
+    .help-links {
+      display: flex;
+      gap: 16px;
+
+      .help-link {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        border: 2px solid rgba(59, 130, 246, 0.2);
+        border-radius: 16px;
+        padding: 10px;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(20px);
+
+        &:hover {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(147, 51, 234, 0.15) 100%);
+          border-color: rgba(59, 130, 246, 0.5);
+          transform: translateY(-3px) scale(1.1);
+          box-shadow: 0 12px 24px rgba(59, 130, 246, 0.25);
+        }
+
+        .help-icon {
+          width: 26px;
+          height: 26px;
+          transition: all 0.4s ease;
+          filter: saturate(0.8);
+        }
+
+        &:hover .help-icon {
+          filter: saturate(1.3) hue-rotate(10deg);
+          transform: scale(1.1);
+        }
+      }
     }
   }
+
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    background-color: #ffffff;
+    border-radius: 20px 0 0 0;
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.05);
+  }
 }
+
 
 // 下拉菜单样式
 :deep(.el-dropdown-menu) {
@@ -726,16 +760,16 @@ watch(
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   border-radius: 8px;
   overflow: hidden;
-  
+
   .el-dropdown-menu__item {
     padding: 12px 16px;
     font-size: 14px;
-    
+
     &:hover {
       background-color: #f5f7fa;
       color: #409eff;
     }
-    
+
     .el-icon {
       margin-right: 8px;
     }
@@ -747,7 +781,7 @@ watch(
   border-right: none;
   background: transparent;
   font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
-  
+
   .el-menu-item {
     border-radius: 16px;
     margin: 10px 16px;
@@ -761,36 +795,36 @@ watch(
     position: relative;
     overflow: hidden;
     color: #475569;
-    
+
     &:hover {
       background: rgba(99, 102, 241, 0.05);
       color: #6366f1;
       transform: translateX(2px);
-      
+
       .el-icon img {
         transform: scale(1.05);
       }
     }
-    
+
     &.is-active {
       background: #ffffff;
       color: #6366f1;
       box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
       border: 1px solid rgba(99, 102, 241, 0.1);
-      
+
       .el-icon {
         img {
           filter: none;
           opacity: 1 !important;
         }
       }
-      
+
       span {
         font-weight: 600;
         color: #6366f1 !important;
       }
     }
-    
+
     .el-icon {
       margin-right: 16px;
       display: flex;
@@ -798,14 +832,14 @@ watch(
       justify-content: center;
       width: 28px;
       height: 28px;
-      
+
       img {
         width: 28px;
         height: 28px;
         transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
       }
     }
-    
+
     span {
       position: relative;
       z-index: 1;

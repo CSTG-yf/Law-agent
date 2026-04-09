@@ -8,42 +8,36 @@ import type { RegisterForm } from '../../apis/auth'
 const router = useRouter()
 
 const registerForm = reactive<RegisterForm>({
-  user_name: '',
-  user_email: '',
-  user_password: ''
+  username: '',
+  password: ''
 })
 
 const confirmPassword = ref('')
 const loading = ref(false)
 
 const validateForm = () => {
-  if (!registerForm.user_name) {
+  if (!registerForm.username) {
     ElMessage.warning('请输入用户名')
     return false
   }
   
-  if (registerForm.user_name.length > 20) {
+  if (registerForm.username.length > 20) {
     ElMessage.warning('用户名长度不应该超过20个字符')
     return false
   }
   
-  if (!registerForm.user_password) {
+  if (!registerForm.password) {
     ElMessage.warning('请输入密码')
     return false
   }
   
-  if (registerForm.user_password.length < 6) {
+  if (registerForm.password.length < 6) {
     ElMessage.warning('密码长度至少6个字符')
     return false
   }
   
-  if (registerForm.user_password !== confirmPassword.value) {
+  if (registerForm.password !== confirmPassword.value) {
     ElMessage.warning('两次输入的密码不一致')
-    return false
-  }
-  
-  if (registerForm.user_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registerForm.user_email)) {
-    ElMessage.warning('请输入有效的邮箱地址')
     return false
   }
   
@@ -59,7 +53,7 @@ const handleRegister = async () => {
     loading.value = true
     const response = await registerAPI(registerForm)
     
-    if (response.data.status_code === 200) {
+    if (response.data.code === 201) {
       ElMessage.success('注册成功，请登录')
       // 跳转到登录页面
       router.push('/login')
@@ -117,19 +111,8 @@ const goToLogin = () => {
           <div class="form-group">
             <label class="form-label">用户名</label>
             <el-input
-              v-model="registerForm.user_name"
+              v-model="registerForm.username"
               placeholder="请输入用户名（最多20个字符）"
-              size="large"
-              class="register-input"
-              @keyup.enter="handleRegister"
-            />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">邮箱（可选）</label>
-            <el-input
-              v-model="registerForm.user_email"
-              placeholder="请输入邮箱地址"
               size="large"
               class="register-input"
               @keyup.enter="handleRegister"
@@ -139,7 +122,7 @@ const goToLogin = () => {
           <div class="form-group">
             <label class="form-label">密码</label>
             <el-input
-              v-model="registerForm.user_password"
+              v-model="registerForm.password"
               type="password"
               placeholder="请输入密码（至少6个字符）"
               size="large"

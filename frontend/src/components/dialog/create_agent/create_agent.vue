@@ -5,7 +5,7 @@ import { Plus, ArrowDown, ArrowRight, Edit, Check, Close } from "@element-plus/i
 import type { UploadProps, UploadUserFile } from "element-plus"
 import { createAgentAPI, updateAgentAPI } from "../../../apis/agent"
 import { uploadFileAPI } from "../../../apis/file"
-import { Agent, AgentFormData } from "../../../type"
+import { Agent, AgentFormData } from "../../../type/homepage"
 
 const fileList = ref<UploadUserFile[]>([])
 const emits = defineEmits<(event: "update") => void>()

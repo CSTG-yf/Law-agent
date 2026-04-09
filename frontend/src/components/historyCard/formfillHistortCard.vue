@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { computed } from "vue"
-import { session } from "../../type/homepage"
+import { formfillSession } from "../../type/formfill"
 
 const emits = defineEmits<{
     (event:'delete'):void
@@ -8,7 +8,7 @@ const emits = defineEmits<{
 }>();
 
 const props = defineProps<{
-    item:session
+    item:formfillSession
 }>();
 
 // 格式化时间显示
@@ -45,6 +45,14 @@ const selectCard = () => {
   console.log('【historyCard】点击了会话卡片，item:', props.item)
   emits('select')
 }
+
+// 模板类型映射
+const templateTypeName = computed(() => {
+  const typeMap: Record<string, string> = {
+    'labor_dispute': '劳务合同'
+  }
+  return typeMap[props.item.template_type] || props.item.template_type
+})
 </script>
 
 <template>
@@ -57,8 +65,8 @@ const selectCard = () => {
           <img :src="props.item.logo || '/default-avatar.png'" alt="" />
         </div> -->
         <div class="content">
-          <div class="title" :title="props.item.session_title">
-            {{ props.item.session_title || '未命名会话' }}
+          <div class="title" :title="templateTypeName">
+            {{ templateTypeName }}
           </div>
         </div>
       </div>

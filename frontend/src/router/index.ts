@@ -20,6 +20,7 @@ import Model from '../pages/model'
 import ModelEditor from '../pages/model/model-editor.vue'
 import Profile from '../pages/profile'
 import Homepage from '../pages/homepage'
+import FormFill from '../pages/formfill'
 import MarsChat from '../pages/mars'
 import Workspace from '../pages/workspace/workspace.vue'
 import WorkspacePage from '../pages/workspace/workspacePage/workspacePage.vue'
@@ -88,6 +89,14 @@ const routes: RouteRecordRaw[] = [
         component: Homepage,
         meta: {
           current: 'homepage'
+        }
+      },
+      {
+        path: '/formfill',
+        name: 'formfill',
+        component: FormFill,
+        meta: {
+          current: 'formfill'
         }
       },
       {
@@ -236,37 +245,37 @@ const router = createRouter({
   routes: routes as RouteRecordRaw[],
 });
 
-// 路由守卫 - 已禁用登录验证，允许直接访问所有页面
-router.beforeEach((to, from, next) => {
-  next();
-});
-
-
-// // 导入用户状态管理
-// import { useUserStore } from '../store/user';
-
-// // 路由守卫 - 访问各个路由前进行登录验证
+// // 路由守卫 - 已禁用登录验证，允许直接访问所有页面
 // router.beforeEach((to, from, next) => {
-//   const userStore = useUserStore();
-  
-//   // 如果路由配置了 requiresAuth 为 false（如登录页、注册页），直接放行
-//   if (to.meta.requiresAuth === false) {
-//     next();
-//     return;
-//   }
-  
-//   // 检查用户是否已登录
-//   if (userStore.isLoggedIn) {
-//     // 已登录，直接访问目标页面
-//     next();
-//   } else {
-//     // 未登录，重定向到登录页
-//     // 保存原始目标路径，登录后可返回
-//     next({
-//       path: '/login',
-//       query: { redirect: to.fullPath }
-//     });
-//   }
+//   next();
 // });
+
+
+// 导入用户状态管理
+import { useUserStore } from '../store/user';
+
+// 路由守卫 - 访问各个路由前进行登录验证
+router.beforeEach((to, from, next) => {
+  const userStore = useUserStore();
+  
+  // 如果路由配置了 requiresAuth 为 false（如登录页、注册页），直接放行
+  if (to.meta.requiresAuth === false) {
+    next();
+    return;
+  }
+  
+  // 检查用户是否已登录
+  if (userStore.isLoggedIn) {
+    // 已登录，直接访问目标页面
+    next();
+  } else {
+    // 未登录，重定向到登录页
+    // 保存原始目标路径，登录后可返回
+    next({
+      path: '/login',
+      query: { redirect: to.fullPath }
+    });
+  }
+});
 
 export default router;
