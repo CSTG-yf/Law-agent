@@ -10,7 +10,6 @@ declare module 'vue' {
     AgentCard: typeof import('./src/components/agentCard/agentCard.vue')['default']
     AgentFormDialog: typeof import('./src/components/dialog/create_agent/AgentFormDialog.vue')['default']
     CommonCard: typeof import('./src/components/commonCard/commonCard.vue')['default']
-    copy: typeof import('./src/components/historyCard/histortCard copy.vue')['default']
     Create_agent: typeof import('./src/components/dialog/create_agent/create_agent.vue')['default']
     Drawer: typeof import('./src/components/drawer/drawer.vue')['default']
     ElBadge: typeof import('element-plus/es')['ElBadge']
