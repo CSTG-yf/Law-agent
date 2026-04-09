@@ -1,17 +1,16 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from "element-plus"
 import { Expand, CirclePlusFilled, Fold } from '@element-plus/icons-vue'
-import { getAgentsAPI } from "../../apis/agent"
-import type { AgentResponse, ApiResponse } from "../../apis/agent"
-import histortCard from '../../components/historyCard/histortCard.vue'
+import histortCard from '../../components/historyCard/formfillHistortCard.vue'
 import { useHistoryChatStore } from "../../store/history_chat_msg"
 import { useRouter, useRoute } from 'vue-router'
-import { MdPreview } from "md-editor-v3"
 import "md-editor-v3/lib/style.css"
-import { getSessionListAPI, getSessionAPI, deleteSessionAPI, workspaceSimpleChatStreamAPI } from '../../apis/workspace'
-import type { ChatRequest, session } from '../../type/homepage'
-import { useUserStore } from '../../store/user'
+import { getSessionListAPI, getFormFillSessionInfoAPI, deleteFormFillSessionAPI, startFormFillSessionAPI, getTemplateListAPI, sendMessageForFormFillAPI, getFormFillStatusAPI, updateSlotValueAPI, getFinalDocumentAPI, downloadDocumentAPI } from '../../apis/formfill'
+import type { formfillSession, block, formfillSessionDetail, formTemplate } from '../../type/formfill'
+import { useUserStore } from '@/store/user'
+import { template } from 'lodash'
+import labor_dispute from '@/components/formfill/labor_dispute.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -20,95 +19,53 @@ const historyChatStore = useHistoryChatStore()
 const searchKeyword = ref('') //用于在会话列表中查找会话
 const selectedSession = ref('') //选中会话的ID
 const inputMessage = ref('') //搜索框输入的内容
-const selectedMode = ref('')//查找方式选择（智能搜索、rag）
-const selectedStrategy = ref<string>('')//rag检索模式
-const showToolSelector = ref(false) //rag选择下拉框
-const showMcpSelector = ref(false) //提供API选择下拉框
-const toolDropdownRef = ref<HTMLElement | null>(null)
-const mcpDropdownRef = ref<HTMLElement | null>(null)
 const currentSessionId = ref<string>('')  // 当前会话ID
 const chatConversationRef = ref<HTMLElement | null>(null)  // 聊天容器引用
 const isGenerating = ref(false)  // 是否正在生成回复
-const rerank = ref(false) // 是否启用重排序
 const userId = computed(() => userStore.userInfo.user_id) // 用户ID，实际使用中应从用户状态获取
-const sessions = ref<session[]>([]) // 会话列表，类型根据后端返回的数据结构定义
+const sessions = ref<formfillSession[]>([])// 会话列表List数据
 const sessionsTotal = ref<number>(0) // 会话总数
-const loading = ref(false) // 是否正在加载会话列表
-const messages = ref<Array<MessageMetadata>>([]) // 消息列表，包含用户消息和AI回复，类型根据后端返回的数据结构定义
+const loading = ref(false) //加载状态
+const messages = ref<formfillSessionDetail[]>([]) //当前会话消息列表
+const current_block = ref<string>('') // 当前模块
+const completion_rate = ref<number>(0) // 当前的完成度
+const blocks = ref<Record<string, any>>({}) // 所有模块的槽位信息
+const templates = ref<formTemplate[]>([]) // 模板列表
+const document_url = ref<string>('') //下载文档的URl
+const success = ref<boolean>(false) //文档是否可以下载 
 const showSessionList = ref(true) // 是否显示会话列表
+const selectedTemplate = ref<string>('') //选中的模板
+const showFormFill = ref<boolean>(false) //是否显示表单填写界面
 
-// 四种rag 搜素策略
-const strategys = ref<any[]>([
-  { name: 'vector向量检索', image: '/src/assets/plugin.svg' },
-  { name: 'hybrid混合检索', image: '/src/assets/plugin.svg' },
-  { name: 'mmr最大边际相关性检索', image: '/src/assets/plugin.svg' },
-  { name: 'multi_query多问题改写向量检索', image: '/src/assets/plugin.svg' }
-])
-
-// 定义来源元数据接口
-interface SourceMetadata {
-  file_name?: string        // 文件名，如：劳动法.pdf
-  chunk_index?: number      // 块索引
-  distance?: number         // 向量距离
-  rerank_score?: number     // 重排序分数
-  file_hash?: string        // 文件哈希
-  split_strategy?: string   // 分块策略
-  file_type?: string        // 文件类型
-  total_chunks?: number     // 总块数
-  chunk_size?: number       // 块大小
-  source?: string           // 来源类型
-  category?: string         // 分类
-  author?: string           // 作者
+// 打开创建对话框
+const openCreateSession = async () => {
+  inputMessage.value = ''
+  selectedSession.value = ''
+  messages.value = []
+  selectedTemplate.value = ''
+  showFormFill.value = false
+  document_url.value = ''
+  success.value = false
+  blocks.value = {}
+  completion_rate.value = 0
+  current_block.value = ''
+  isGenerating.value = false
+  currentSessionId.value = ''
+  await fetchSessions()
+  await fetchTemplate()
 }
 
-// 定义引用来源接口
-interface Source {
-  content?: string          // 文档内容摘要
-  metadata?: SourceMetadata // 元数据
-}
-
-// 定义消息元数据接口（对应 ChatResponse）
-interface MessageMetadata {
-  message_id?: string       // 消息 ID（对应后端 message_id）
-  session_id?: string       // 会话 ID（对应后端 session_id）
-  role?: 'user' | 'assistant'  // 消息角色
-  content?: string          // 回复内容或者提问内容
-  timestamp?: string        // 回复时间戳
-  sources?: Source[]        // 引用来源（如果使用 RAG）
-  rag_used?: boolean        // 是否使用了 RAG
-  retrieval_strategy?: string  // 使用的检索策略
-  tools_used?: any          // 使用的工具列表
-  tool_results?: any        // 工具执行结果
-}
-
-// 切换 rerank 开关
-const toggleRerank = () => {
-  rerank.value = !rerank.value
-}
-
-//切换收起会话列表
+//切换收起会话列表 ok
 const toggleSessionList = () => {
   showSessionList.value = !showSessionList.value
 }
 
-
-// 打开创建对话框
-const openCreateSession = async () => {
-  // 重置所有相关状态到初始值
-  selectedMode.value = ''           // 默认使用 RAG 模式
-  selectedStrategy.value = ''    // 默认使用 vector 检索策略
-
-  inputMessage.value = ''              // 清空输入框
-  // 关闭下拉选择器
-  showToolSelector.value = false
-  showMcpSelector.value = false
-  selectedSession.value = ''
-  messages.value = []
-  currentSessionId.value = ''
-  fetchSessions()
+//切换显示表单填写界面 ok
+const toggleFormFill = () => {
+  showFormFill.value = !showFormFill.value
 }
 
-// 获取对话列表
+// 获取对话列表 ok
 const fetchSessions = async () => {
   try {
     loading.value = true
@@ -121,38 +78,16 @@ const fetchSessions = async () => {
       // 直接使用 sessions 数组
       sessions.value = response.data.data.sessions.map((item: any) => ({
         session_id: item.session_id,
-        user_id: item.user_id, // 使用 session_id 作为显示名称
+        template_type: item.template_type,
+        current_block: item.current_block,
+        conversation_turn: item.conversation_turn,
         created_at: item.created_at,
-        message_count: item.message_count,
-        rag_enabled: item.rag_enabled,
-        session_title: item.title
+        updated_at: item.updated_at,
       }))
 
       sessionsTotal.value = response.data.total
 
       console.log('对话列表获取成功:', sessions.value)
-
-      // // 如果会话列表不为空且当前路由是默认页面，立即自动打开第一个会话
-      // if (sessions.value.length > 0 && router.currentRoute.value.name === 'defaultPage') {
-      //   const firstSession = sessions.value[0]
-      //   console.log('立即自动打开第一个会话:', firstSession.sessionId, firstSession.name)
-
-      //   // 设置选中的会话
-      //   selectedSession.value = firstSession.sessionId
-
-      //   // 设置聊天store的状态
-      //   historyChatStore.sessionId = firstSession.sessionId
-      //   historyChatStore.name = firstSession.name
-      //   historyChatStore.logo = firstSession.logo
-
-      //   // 立即跳转到聊天页面
-      //   router.push({
-      //     path: '/conversation/chatPage',
-      //     query: {
-      //       session_id: firstSession.sessionId
-      //     }
-      //   })
-      // }
     } else {
       ElMessage.error(`获取对话列表失败: ${response.data.status_message}`)
     }
@@ -164,11 +99,51 @@ const fetchSessions = async () => {
   }
 }
 
-// 删除会话
+
+// 选择会话查询当前会话的详情
+const selectSession = async (session_id: string) => {
+  try {
+    await openCreateSession()
+    
+    const response = await getFormFillSessionInfoAPI(session_id)
+    if (response.data.code === 200) {
+      console.log('查询某个会话得到的消息', response.data.data)
+
+      const sessionData = response.data.data
+      
+      if (sessionData) {
+        selectedTemplate.value = sessionData.template_type || ''
+        currentSessionId.value = sessionData.session_id || session_id
+        
+        if (sessionData.messages && Array.isArray(sessionData.messages)) {
+          messages.value = sessionData.messages.map((msg: any) => ({
+            role: msg.role as 'user' | 'assistant',
+            message: msg.message || '',
+            timestamp: msg.timestamp,
+          }))
+        }
+        
+        console.log('已加载会话历史，消息数量:', messages.value.length)
+        console.log('消息详情:', messages.value)
+        console.log('当前模板:', selectedTemplate.value)
+        
+        await fetchFormFillStatus()
+        await fetchSessions()
+        scrollToBottom()
+      }
+    }
+
+  } catch (error) {
+    console.error('查询会话出错:', error)
+    ElMessage.error('查询会话失败，请检查网络连接')
+  }
+}
+
+// 删除会话 ok
 const deleteSession = async (session_id: string) => {
   console.log('删除会话被调用，session_id:', session_id)
   try {
-    const response = await deleteSessionAPI(session_id)
+    const response = await deleteFormFillSessionAPI(session_id)
     if (response.data.code === 200) {
       ElMessage({
         message: '会话删除成功',
@@ -190,100 +165,94 @@ const deleteSession = async (session_id: string) => {
   }
 }
 
-// 选择会话
-const selectSession = async (session_id: string) => {
+//获取文书模板 ok
+const fetchTemplate = async () => {
   try {
-    const response = await getSessionAPI(session_id)
+    const response = await getTemplateListAPI()
     if (response.data.code === 200) {
-      console.log('查询某个会话得到的消息', response.data.data)
+      console.log('获取模板列表成功:', response.data.data.templates)
 
-      // 替换当前 messages 内容为查询到的会话历史
-      if (response.data.data && response.data.data.messages && Array.isArray(response.data.data.messages)) {
-        // 直接使用后端返回的 messages 数组，保持完整的数据结构（包括 sources）
-        messages.value = response.data.data.messages.map((msg: any) => ({
-          message_id: msg.message_id,
-          session_id: msg.session_id,
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content || '',
-          timestamp: msg.timestamp,
-          sources: msg.sources || [],
-          rag_used: msg.rag_used,
-          retrieval_strategy: msg.retrieval_strategy,
-          tools_used: msg.tools_used,
-          tool_results: msg.tool_results
-        }))
+      templates.value = response.data.data.templates.map((item: any) => ({
+        template_type: item.template_type,
+        template_name: item.template_name,
+        template_file: item.template_file,
+        block_count: item.block_count,
+      }))
 
-        console.log('已加载会话历史，消息数量:', messages.value.length)
-        console.log('消息详情:', messages.value)
-
-        // 重新获取会话列表
-        await fetchSessions()
-
-        // 自动滚动到底部
-        scrollToBottom()
-      }
+    } else {
+      ElMessage.error(`获取模板列表失败: ${response.data.status_message}`)
+      return []
     }
-
   } catch (error) {
-    console.error('查询会话出错:', error)
-    ElMessage.error('查询会话失败，请检查网络连接')
+    console.error('获取模板列表出错:', error)
+    ElMessage.error('获取模板列表失败，请检查网络连接')
+    return []
   }
 }
 
-// 切换 rag 选择
-const selectStrategy = (strategy: string) => {
-  // 如果已经选择了当前策略，再次点击则取消选择
-  if (selectedStrategy.value === strategy && selectedMode.value === 'rag') {
-    selectedStrategy.value = ''
-    selectedMode.value = ''
-  } else {
-    // 选择新的 RAG 策略
-    selectedStrategy.value = strategy
-    selectedMode.value = 'rag'
-  }
-  // 选择策略后关闭下拉菜单
-  showToolSelector.value = false
-}
+//选取文书模板开启对话 ok
+const selectTemplate = async (template_type: string, template_name?: string) => {
+  console.log('选择文书模板被调用，template_type:', template_type, 'template_name:', template_name)
+  try {
+    // if (template_name) {
+    //   await ElMessageBox.confirm(`确定要使用「${template_name}」模板吗？`, '确认选择模板', {
+    //     confirmButtonText: '确定',
+    //     cancelButtonText: '取消',
+    //     type: 'info',
+    //     customClass: 'template-confirm-dialog'
+    //   })
+    // }
 
-// 切换智能搜索
-const toggleWebSearch = () => {
-  // 如果当前已经是 normal 模式，再次点击则取消选择
-  if (selectedMode.value === 'normal') {
-    selectedMode.value = ''
-    selectedStrategy.value = ''
-  } else {
-    // 切换到 normal 模式
-    selectedMode.value = 'normal'
-    selectedStrategy.value = ''  // 清空 RAG 策略选择
-  }
-  console.log(selectedMode.value)
-}
-
-//切换Rag搜索
-const toggleRagSearch = () => {
-  // 如果当前已经是 rag 模式，再次点击则取消选择
-  if (selectedMode.value === 'rag') {
-    selectedMode.value = ''
-    selectedStrategy.value = ''
-  } else {
-    // 切换到 rag 模式
-    selectedMode.value = 'rag'
-    // 如果没有选择策略，默认选择第一个
-    if (!selectedStrategy.value && strategys.value.length > 0) {
-      selectedStrategy.value = strategys.value[0].name
+    const response = await startFormFillSessionAPI( userId.value,template_type)
+    if (response.data.code === 200) {
+      currentSessionId.value = response.data.data.session_id
+      selectedTemplate.value = template_type
+      messages.value.push({ role: 'assistant' as const, message: response.data.data.message || '', timestamp: new Date().toISOString() })
+      await fetchSessions()
+      console.log('messages:', messages.value)
+      ElMessage.success('模板选择成功，开始填写文档')
+    } else {
+      ElMessage.error(`获取模板列表失败: ${response.data.status_message}`)
+    }
+  } catch (error) {
+    if (template_name) {
+      console.log('用户取消了模板选择')
+    } else {
+      console.error('获取模板列表出错:', error)
+      ElMessage.error('获取模板列表失败，请检查网络连接')
     }
   }
-  console.log(selectedMode.value)
 }
 
-// 发送消息
+//根据选取的文档模板计算出文档模板组件名 ok
+const formfillComponent = computed(() => {
+  // 映射表：将后端的 template_type 字符串映射为 Vue 组件对象
+  const templateMap: Record<string, any> = {
+    'labor_dispute': labor_dispute,
+    // 'divorce': divorce_dispute, // 预留扩展
+  }
+
+  // 获取当前的模板标识符
+  // 优先取选中的模板，如果没有（比如刷新页面），则看当前会话的模板类型
+  const type = selectedTemplate.value || ''
+
+  // 返回对应的组件，如果没有匹配到，默认返回 labor_dispute 或 null
+  if (templateMap[type]) {
+    return templateMap[type]
+  }
+
+  // 回退逻辑：如果没有任何匹配，可以返回一个默认组件防止页面白屏
+  console.warn(`未找到类型为 [${type}] 的模板组件，已回退到默认模板`)
+  return labor_dispute 
+})
+
+// 发送消息 ok
 const handleSend = async () => {
   if (!inputMessage.value.trim()) {
     ElMessage.warning('请输入消息内容')
     return
   }
 
-  // 如果正在生成回复，不允许发送新消息
   if (isGenerating.value) {
     ElMessage.warning('请等待当前回复完成')
     return
@@ -291,175 +260,142 @@ const handleSend = async () => {
 
   const question = inputMessage.value.trim()
 
-  console.log('=== RAG 模式发送消息 ===')
-  console.log('selectedStrategy:', selectedStrategy.value)
   console.log('query:', question)
   console.log('session_id:', currentSessionId.value)
 
-
-  // 如果还没有 session_id，生成一个新的
-
-  // 立即清空输入框，提升用户体验
-  inputMessage.value = ''
-
-  // 设置正在生成状态（转圈）
   isGenerating.value = true
 
-  // 将用户消息加入消息列表
   console.log('将用户消息加入 messages')
-  messages.value.push({ role: 'user' as const, content: question })
+  messages.value.push({ role: 'user' as const, message: question, timestamp: new Date().toISOString() })
 
-  // 自动滚动到底部
+  await nextTick()
   scrollToBottom()
 
-  // 预置一条 AI 消息用于流式累加（先添加到数组，然后通过索引更新以触发响应式）
-  const aiMsgIndex = messages.value.length
-  messages.value.push({ role: 'assistant', content: '' })
-  console.log('当前 messages 长度:', messages.value.length)
-
   try {
-    // 根据新的接口规范构建 payload
-    const payload: ChatRequest = {
-      message: question,
-      user_id: userId.value,
-      use_rag: selectedMode.value === 'rag' ? true : false,  // 当选中 RAG 模式时启用 RAG 检索
-      retrieval_strategy: selectedStrategy.value,
-      enable_rerank: rerank.value === true ? true : false,
-      max_history: 20,
-      stream: true,
-      enable_tools: selectedMode.value === 'normal' ? true : false
+    const response = await sendMessageForFormFillAPI(currentSessionId.value, question, userId.value)
+    console.log('API 完整响应:', response)
+    console.log('response.data:', response.data)
+    console.log('response.data.data:', response.data.data)
+    
+    if (response.data.code === 200) {
+      console.log('消息发送成功，后端响应:', response.data.data)
+      
+      const aiMessage = response.data.data.answer || response.data.data.message || response.data.data.response || ''
+      console.log('AI 回复内容:', aiMessage)
+
+      messages.value.push({ 
+        role: 'assistant' as const, 
+        message: aiMessage, 
+        timestamp: new Date().toISOString() 
+      })
+
+      console.log('添加 AI 消息后的 messages:', messages.value)
+      console.log('messages 长度:', messages.value.length)
+
+      await nextTick()
+      
+      completion_rate.value = response.data.data.completion_rate || 0
+
+      await fetchFormFillStatus()
+      await fetchSessions()
+
+      scrollToBottom()
+      isGenerating.value = false
+    } else {
+      isGenerating.value = false
+      ElMessage.error(`消息发送失败: ${response.data.status_message}`)
     }
 
-    // 如果 currentSessionId 不为空，才添加 session_id 字段
-    if (currentSessionId.value) {
-      payload.session_id = currentSessionId.value;
-    }
+    inputMessage.value = ''
 
-    console.log('准备调用 workspaceSimpleChatStreamAPI，payload:', payload)
-
-    // 用于存储完整的消息对象
-    let fullMessageData: MessageMetadata | null = null
-    let lastMessageId: string = ''  // 记录最后一条消息 ID，用于去重
-
-    await workspaceSimpleChatStreamAPI(
-      payload,
-      (messageData: MessageMetadata) => {
-        console.log('📨 收到消息数据:', messageData)
-
-        // 🎯 阶段 1：接收 metadata 元数据
-        if (messageData.message_id || messageData.session_id) {
-          console.log('📋 设置 metadata:', messageData)
-
-          // 更新 lastMessageId
-          if (messageData.message_id) {
-            lastMessageId = messageData.message_id
-            messages.value[aiMsgIndex].message_id = messageData.message_id
-          }
-
-          // 更新 session_id
-          if (messageData.session_id) {
-            currentSessionId.value = messageData.session_id
-            messages.value[aiMsgIndex].session_id = messageData.session_id
-            console.log('🔄 更新 session_id:', messageData.session_id)
-          }
-
-          // 更新 role
-          if (messageData.role) {
-            messages.value[aiMsgIndex].role = messageData.role
-          }
-
-          return
-        }
-
-        // 🎯 阶段 2：接收流式 chunk 数据（只有 content 字段）
-        if (messageData.content && !messageData.message_id && !messageData.sources) {
-          console.log('📝 累加 chunk:', messageData.content)
-          messages.value[aiMsgIndex].content += messageData.content
-
-          // 每次收到新内容时自动滚动到底部
-          scrollToBottom()
-          return
-        }
-
-        // 🎯 阶段 3：接收完整的 sources
-        if (messageData.sources && messageData.sources.length > 0) {
-          console.log('📚 设置 sources:', messageData.sources)
-          messages.value[aiMsgIndex].sources = messageData.sources
-
-          // 更新其他元数据
-          if (messageData.rag_used !== undefined) {
-            messages.value[aiMsgIndex].rag_used = messageData.rag_used
-          }
-          if (messageData.retrieval_strategy) {
-            messages.value[aiMsgIndex].retrieval_strategy = messageData.retrieval_strategy
-          }
-          if (messageData.tools_used !== undefined) {
-            messages.value[aiMsgIndex].tools_used = messageData.tools_used
-          }
-          if (messageData.tool_results !== undefined) {
-            messages.value[aiMsgIndex].tool_results = messageData.tool_results
-          }
-          if (messageData.timestamp) {
-            messages.value[aiMsgIndex].timestamp = messageData.timestamp
-          }
-
-          // 保存完整的消息数据
-          fullMessageData = messageData
-
-          // 滚动到底部
-          scrollToBottom()
-          return
-        }
-      },
-      (err) => {
-        console.error('❌ 出错', err)
-        ElMessage.error('对话失败，请稍后重试')
-        isGenerating.value = false  // 出错时解除生成状态
-      },
-      () => {
-        console.log('✅ SSE 连接结束')
-        console.log('📦 完整消息数据:', fullMessageData)
-        isGenerating.value = false  // 完成时解除生成状态
-      }
-    )
   } catch (e) {
     console.error('RAG 模式对话异常', e)
     ElMessage.error('对话异常')
-    isGenerating.value = false  // 异常时解除生成状态
+    isGenerating.value = false
   }
-
 }
 
-// 加载会话历史
-const loadSessionHistory = async (sessionId: string) => {
+//获取当前填写状态
+const fetchFormFillStatus = async () => {
   try {
-    // 导入 API
-    const { getWorkspaceSessionsAPI } = await import('../../apis/workspace')
-    const response = await getWorkspaceSessionsAPI()
-
-    if (response.data.status_code === 200) {
-      const session = response.data.data.find((s: any) => s.session_id === sessionId)
-
-      if (session && session.contexts && Array.isArray(session.contexts)) {
-        // 将 contexts 转换为 messages 格式
-        messages.value = session.contexts.map((ctx: any) => [
-          { role: 'user' as const, content: ctx.query || '' },
-          { role: 'assistant' as const, content: ctx.answer || '' }
-        ]).flat().filter((msg: any) => msg.content) // 过滤掉空内容
-
-        console.log('已加载会话历史，消息数量:', messages.value.length)
-
-        // 加载历史后滚动到底部
-        scrollToBottom()
-      }
+    const response = await getFormFillStatusAPI(currentSessionId.value)
+    if (response.data.code === 200) {
+      console.log('获取当前填写状态成功:', response.data.data)
+      const data = response.data.data
+      blocks.value = data.blocks || {}
+      completion_rate.value = data.overall_completion_rate || 0
+      current_block.value = data.current_block || ''
+    } else {
+      ElMessage.error(`获取当前填写状态失败: ${response.data.status_message}`)
     }
   } catch (error) {
-    console.error('加载会话历史失败:', error)
-    ElMessage.error('加载会话历史失败')
+    console.error('获取当前填写状态出错:', error)
+    ElMessage.error('获取当前填写状态失败，请检查网络连接')
+  }
+}
+//手动更新槽位值 ok
+const updateSlotValue = async (block_id:string,slot_name:string,slot_value:string) =>{
+  blocks.value[slot_name] = slot_value
+  await nextTick()
+  try {
+    await updateSlotValueAPI(currentSessionId.value,block_id,slot_name,slot_value)
+    await fetchFormFillStatus()
+  } catch (error) {
+    console.error('更新槽位值出错:', error)
+    ElMessage.error('更新槽位值失败，请检查网络连接')
   }
 }
 
-// 键盘事件处理
+
+
+//生成最终文档
+const generateForm = async () => {
+  try {
+    const response = await getFinalDocumentAPI(currentSessionId.value)
+    if (response.data.code === 200) {
+      if (response.data.data.success) {
+        success.value = true
+        document_url.value = response.data.data.document_url
+        ElMessage.success('文书生成成功')
+      } else {
+        ElMessage.error('文书生成失败，请稍后重试')
+      }
+
+    }
+  } catch (error) {
+    ElMessage.error('获取文书状态失败，请检查网络连接')
+  }
+}
+
+//下载生成的文档
+const downloadDocument = async () => {
+  if (!success.value || !document_url.value) {
+    ElMessage.warning('文书尚未生成，请稍后')
+    return
+  }
+
+  try {
+    const response = await downloadDocumentAPI(currentSessionId.value)
+    if (response.data.code === 200) {
+      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `generated_document_${currentSessionId.value}.docx`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } else {
+      ElMessage.error(`下载文书失败: ${response.data.status_message}`)
+    }
+  } catch (error) {
+    console.error('下载文书出错:', error)
+    ElMessage.error('下载文书失败，请检查网络连接')
+  }
+}
+
+// 键盘事件处理 ok
 const handleKeydown = (event: KeyboardEvent) => {
   // 直接回车发送，Shift+Enter 换行
   if (event.key === 'Enter' && !event.shiftKey) {
@@ -471,24 +407,7 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
-// 点击空白处关闭rag/MCP下拉
-const handleClickOutside = (e: MouseEvent) => {
-  const target = e.target as Node
-  if (showToolSelector.value && toolDropdownRef.value && !toolDropdownRef.value.contains(target)) {
-    showToolSelector.value = false
-  }
-  if (showMcpSelector.value && mcpDropdownRef.value && !mcpDropdownRef.value.contains(target)) {
-    showMcpSelector.value = false
-  }
-}
-
-// 生成UUID（模拟Python的uuid4().hex）
-const generateSessionId = (): string => {
-  // 使用crypto.randomUUID()生成UUID，然后移除横杠
-  return crypto.randomUUID().replace(/-/g, '')
-}
-
-// 自动滚动到底部
+// 自动滚动到底部 ok
 const scrollToBottom = () => {
   if (chatConversationRef.value) {
     setTimeout(() => {
@@ -499,7 +418,7 @@ const scrollToBottom = () => {
   }
 }
 
-// 头像加载错误处理
+// 头像加载错误处理 ok
 const handleAvatarError = (event: Event) => {
   const target = event.target as HTMLImageElement
   if (target) {
@@ -509,32 +428,17 @@ const handleAvatarError = (event: Event) => {
 
 
 onMounted(async () => {
-  fetchSessions()
+  await fetchSessions()
+  await fetchTemplate()
   // 检查是否有 session_id 参数，如果有则加载会话历史
   const sessionId = route.query.session_id as string
   if (sessionId) {
     console.log('加载已有会话:', sessionId)
     currentSessionId.value = sessionId  // 设置当前会话ID
-    await loadSessionHistory(sessionId)
+    await selectSession(sessionId)
   }
-
-  // 懒加载 MCP 列表（用于选择）
-  // import('../../apis/mcp-server').then(async ({ getMCPServersAPI }) => {
-  //   try {
-  //     const res = await getMCPServersAPI()
-  //     if (res.data && res.data.status_code === 200 && Array.isArray(res.data.data)) {
-  //       mcpServers.value = res.data.data
-  //     }
-  //   } catch (e) {
-  //     console.error('加载 MCP 服务器失败', e)
-  //   }
-  // })
-  // document.addEventListener('click', handleClickOutside)
 })
 
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleClickOutside)
-})
 
 // 监听路由参数变化
 watch(
@@ -547,14 +451,8 @@ watch(
       // 清空当前消息
       messages.value = []
       // 加载新会话的历史
-      await loadSessionHistory(newSessionId as string)
+      await fetchSessions()
     }
-    // else if (!newSessionId && oldSessionId) {
-    //   // 如果从有session_id变为没有，生成新的session_id
-    //   currentSessionId.value = generateSessionId()
-    //   console.log('生成新会话ID:', currentSessionId.value)
-    //   messages.value = []
-    // }
   }
 )
 
@@ -565,7 +463,6 @@ watch(
 
     <!-- 左侧边栏 -->
     <div class="sidebar" v-if="showSessionList">
-      <!-- 新建会话按钮 -->
       <div class="create-section">
         <button @click="openCreateSession" class="create-btn-native">
           <div class="btn-content">
@@ -607,15 +504,16 @@ watch(
           </div>
         </div>
         <!-- 用 histortCard 渲染会话卡片 -->
-        <histortCard v-for="session in sessions" :key="session.session_id" :item="session"
-          :class="{ active: selectedSession === session.session_id }" @select="selectSession(session.session_id)"
-          @delete="deleteSession(session.session_id)" />
+        <histortCard v-for="formfillSession in sessions" :key="formfillSession.session_id" :item="formfillSession"
+          :class="{ active: selectedSession === formfillSession.session_id }"
+          @select="selectSession(formfillSession.session_id)" @delete="deleteSession(formfillSession.session_id)" />
       </div>
     </div>
 
     <!-- 右侧主体区域 -->
     <div class="content">
       <div class="chat-page" :class="{ 'chat-active': messages.length > 0 }">
+        <!-- 顶部操作按钮区域 -->
         <div v-if="!showSessionList" class="expand-create-section">
           <button @click="toggleSessionList" class="expand-btn-native">
             <div class="btn-content">
@@ -633,166 +531,108 @@ watch(
           </button>
         </div>
 
-        <!-- 对话内容容器 - 占据剩余空间并支持滚动 -->
-        <div v-if="messages.length > 0" class="chat-conversation-container">
-          <div class="chat-conversation" ref="chatConversationRef">
-            <div v-for="(msg, idx) in messages" :key="idx" class="message-group">
-              <!-- User Message -->
-              <div v-if="msg.role === 'user'" class="user-message">
-                <div class="message-content">
-                  <span>{{ msg.content }}</span>
-                </div>
-                <img :src="userStore.userInfo?.avatar || '/src/assets/user.svg'" alt="User Avatar" class="avatar"
-                  @error="handleAvatarError" />
-              </div>
+        <div class="main-content">
 
-              <!-- AI Message -->
-              <div v-if="msg.role === 'assistant'" class="ai-message">
-                <img src="/src/assets/robot.svg" alt="AI Avatar" class="avatar" />
-                <div class="message-content">
-                  <!-- 加载转圈器 - 仅在内容为空且正在生成时显示 -->
-                  <div v-if="!msg.content && isGenerating && idx === messages.length - 1"
-                    class="loading-spinner-container">
-                    <div class="loading-spinner"></div>
-                    <span class="loading-text">AI 正在思考中...</span>
+          <!-- 对话区 -->
+          <div class="main-content-left">
+            <div v-if="selectedTemplate" class="show-form-button">
+            <!-- <div class="show-form-button"> -->
+              <el-button @click="toggleFormFill" class="form-button">{{ showFormFill ? '收起文档' : '查看文档' }}</el-button>
+            </div>
+            <!-- 对话内容容器 - 占据剩余空间并支持滚动 -->
+            <div v-if="messages.length > 0" class="chat-conversation-container">
+              <div class="chat-conversation" ref="chatConversationRef">
+                <div v-for="(msg, idx) in messages" :key="idx" class="message-group">
+                  <!-- User Message -->
+                  <div v-if="msg.role === 'user'" class="user-message">
+                    <div class="message-content">
+                      <span>{{ msg.message }}</span>
+                    </div>
+                    <img :src="userStore.userInfo?.avatar || '/src/assets/user.svg'" alt="User Avatar" class="avatar"
+                      @error="handleAvatarError" />
                   </div>
-                  <!-- 实际内容 - 有内容时显示 -->
-                  <MdPreview v-if="msg.content" :editorId="'workspace-ai-' + idx" :modelValue="msg.content" />
 
-                  <!-- 引用来源展示 - 当 sources 不为空时显示 -->
-                  <div v-if="msg.sources && msg.sources.length > 0" class="sources-section">
-                    <div class="sources-title">引用来源</div>
-                    <div v-for="(source, sIdx) in msg.sources" :key="sIdx" class="source-item">
-                      <div class="source-content">
-                        <span class="source-text">{{ source.content }}</span>
-                      </div>
-                      <div class="source-metadata">
-                        <span v-if="source.metadata?.file_name" class="meta-item">
-                          <span class="meta-label">文件：</span>
-                          <span class="meta-value">{{ source.metadata.file_name }}</span>
-                        </span>
-                        <span v-if="source.metadata?.category" class="meta-item">
-                          <span class="meta-label">分类：</span>
-                          <span class="meta-value">{{ source.metadata.category }}</span>
-                        </span>
-                        <span v-if="source.metadata?.author" class="meta-item">
-                          <span class="meta-label">作者：</span>
-                          <span class="meta-value">{{ source.metadata.author }}</span>
-                        </span>
-                        <span v-if="source.metadata?.source" class="meta-item">
-                          <span class="meta-label">来源：</span>
-                          <span class="meta-value">{{ source.metadata.source }}</span>
-                        </span>
-                        <span v-if="source.metadata?.rerank_score !== undefined" class="meta-item">
-                          <span class="meta-label">重排序分数：</span>
-                          <span class="meta-value">{{ source.metadata.rerank_score }}</span>
-                        </span>
-                      </div>
+                  <div v-if="msg.role === 'assistant'" class="ai-message">
+                    <img src="/src/assets/robot.svg" alt="AI Avatar" class="avatar" />
+                    <div class="message-content">
+                      <span>{{ msg.message }}</span>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- 底部区域（包含欢迎界面和输入框） -->
+            <div class="bottom-section">
+              <!-- 欢迎界面（无对话时显示） -->
+              <div v-if="!selectedTemplate" class="welcome-section">
+                <div class="avatar-wrapper">
+                  <img src="../../assets/robot.svg" alt="智言" class="avatar" />
+                </div>
+                <h1 class="welcome-title">在文档生成前请先选择模板</h1>
+
+                <!-- 展示各种模板 -->
+                <div class="template-list" v-if="!selectedTemplate">
+                  <div v-for="template in templates" :key="template.template_name" class="template-item"
+                    @click="selectTemplate(template.template_type, template.template_name)">
+                    <h3>{{ template.template_name }}</h3>
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- 输入区域（始终在底部） -->
+              <div class="input-section">
+                <div class="input-wrapper">
+                  <textarea v-model="inputMessage" placeholder="给智言发消息，让智言帮你完成任务~" class="message-input" rows="4"
+                    @keydown="handleKeydown"></textarea>
+
+                  <!-- 底部控制栏 -->
+                  <div class="input-footer">
+                    <div class="footer-left">
+                    </div>
+
+                    <div class="footer-right">
+                      <!-- 发送按钮 -->
+                      <button class="send-btn" :class="{ 'btn-disabled': isGenerating }" :disabled="isGenerating"
+                        @click="handleSend">
+                        <span v-if="!isGenerating && selectedTemplate">➤</span>
+                        <span v-else class="loading-spinner"></span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 文档展示区 -->
+          <div class="main-content-right" v-if="showFormFill && formfillComponent">
+            <div class="document-section">
+              <!-- 动态调用模板组件 -->
+              <component :is="formfillComponent" :blocks="blocks"  @updateSlotValue="updateSlotValue"/>
+            </div>
+
+            <!-- <div class="document-download-section" v-if="success"> -->
+            <div class="document-download-section">
+              <div class="demo-progress">
+                <span class="current-progress">当前进度:</span>
+                <el-progress :text-inside="true" :stroke-width="26" :percentage="completion_rate*100"
+                  style="display: inline-block; vertical-align: middle; width: calc(100% - 80px);" />
+              </div>
+              <button class="download-btn" @click="generateForm">生成文书</button>
+              <!-- 在生成成功后显示包含 URL 的下载按钮 -->
+              <button 
+                v-if="success && document_url" 
+                class="download-url-btn" 
+                @click="downloadDocument">
+                {{ document_url }}
+              </button>
             </div>
           </div>
         </div>
 
-        <!-- 底部区域（包含欢迎界面和输入框） -->
-        <div class="bottom-section">
-          <!-- 欢迎界面（无对话时显示） -->
-          <div v-if="messages.length === 0" class="welcome-section">
-            <div class="avatar-wrapper">
-              <img src="../../assets/robot.svg" alt="智言" class="avatar" />
-            </div>
-            <h1 class="welcome-title">我是智言小助手，很高兴见到你！</h1>
-            <p class="welcome-subtitle">
-              欢迎体验智言灵寻 LingSeek，一位懂得完成复杂任务的 Agent 助理~
-            </p>
-          </div>
 
-          <!-- 输入区域（始终在底部） -->
-          <div class="input-section">
-            <div class="input-wrapper">
-              <textarea v-model="inputMessage" placeholder="给智言发消息，让智言帮你完成任务~" class="message-input" rows="4"
-                @keydown="handleKeydown"></textarea>
-
-              <!-- 底部控制栏 -->
-              <div class="input-footer">
-                <div class="footer-left">
-
-                  <!-- 智能搜索（normal 模式时高亮） -->
-                  <div class="selector-dropdown">
-                    <div :class="['selector-item', { active: selectedMode === 'normal' }]" @click="toggleWebSearch">
-                      <span class="selector-icon">🌐</span>
-                      <span class="selector-text">德理智能搜索</span>
-                    </div>
-                  </div>
-
-                  <!-- rag 搜素选择（rag 模式时高亮） -->
-                  <div class="selector-dropdown" ref="toolDropdownRef">
-                    <div :class="['selector-item', { active: selectedMode === 'rag' }]" @click="toggleRagSearch">
-                      <img src="/src/assets/plugin.svg" alt="rag" class="selector-icon-img" />
-                      <span class="selector-text">
-                        {{ selectedMode === 'rag' ? (selectedStrategy ? `已选 ${selectedStrategy}` : '选择 rag') : '选择 rag' }}
-                      </span>
-                      <span class="selector-arrow" @click.stop="showToolSelector = !showToolSelector">{{ showToolSelector ? '▲' : '▼' }}</span>
-                    </div>
-
-                    <!-- rag 下拉菜单 -->
-                    <transition name="dropdown">
-                      <div v-if="showToolSelector" class="dropdown-menu tool-menu">
-                        <!-- 标题 -->
-                        <div class="dropdown-header">
-                          <span class="header-title">选择 rag 方式</span>
-                          <span class="header-count">{{ strategys.length }} 个可用</span>
-                        </div>
-
-                        <!-- rag 列表 -->
-                        <div class="dropdown-list">
-                          <div v-if="strategys.length === 0" class="dropdown-empty">
-                            <img src="/src/assets/plugin.svg" alt="rag" class="empty-icon-img" />
-                            <span class="empty-text">暂无可用 rag 方式</span>
-                          </div>
-                          <div v-for="strategy in strategys" :key="strategy.name"
-                            :class="['dropdown-item', { selected: selectedStrategy === strategy.name }]"
-                            @click="selectStrategy(strategy.name)">
-                            <div class="item-left">
-                            
-                              <div class="item-content">
-                                <div class="item-text">{{ strategy.name }}</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </transition>
-                  </div>
-
-                  <!-- rerank 开关（绑定 rerank） -->
-                  <div :class="['rerank-btn', { active: rerank }]" @click="toggleRerank">
-                    <!-- <span class="rerank-icon">🔄</span> -->
-                    <span class="rerank-text">重排序</span>
-                  </div>
-
-                </div>
-
-                <div class="footer-right">
-                  <!-- 附件按钮 -->
-                  <!-- <button class="icon-btn" title="上传附件" @click="triggerFileInput">
-                    <img src="../../assets/upload.svg" alt="上传" class="upload-icon" />
-                  </button>
-                  <input type="file" ref="fileInputRef" class="hidden-file-input" multiple @change="onFileChange" /> -->
-
-                  <!-- 发送按钮 -->
-                  <button class="send-btn" :class="{ 'btn-disabled': isGenerating }" :disabled="isGenerating"
-                    @click="handleSend">
-                    <span v-if="!isGenerating">➤</span>
-                    <span v-else class="loading-spinner"></span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -1130,9 +970,9 @@ watch(
       overflow: hidden;
       flex: 1;
 
-      &.chat-active {
-        background: white;
-      }
+      // &.chat-active {
+      //   background: linear-gradient(135deg, #f0f4ff 0%, #d9e8ff 100%);
+      // }
 
       .expand-create-section {
         display: flex;
@@ -1142,7 +982,7 @@ watch(
         padding: 16px;
         gap: 12px;
 
-        // 展开按钮样式
+        // 展开按钮样式优化
         .expand-btn-native {
           width: 36px;
           height: 36px;
@@ -1216,18 +1056,230 @@ watch(
         }
 
       }
+
+      .main-content {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+
+        .main-content-left {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          position: relative;
+          border-radius: 10px;
+          background-color: linear-gradient(135deg, #f0f4ff 0%, #d9e8ff 100%);
+
+          .show-form-button {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            z-index: 10;
+
+            .form-button {
+              /* 基础定位与尺寸 */
+              align-self: flex-start;
+              min-width: 90px;
+              /* 稍微增加一点宽度，让文字不那么拥挤 */
+              height: 36px;
+              padding: 0 16px;
+
+              /* 核心样式 */
+              background-color: #3b82f6;
+              /* 经典的克莱因蓝，很有科技感 */
+              color: #ffffff;
+              border: none;
+              border-radius: 8px;
+              /* 圆角是现代感的灵魂 */
+
+              /* 字体样式 */
+              font-size: 14px;
+              font-weight: 500;
+              cursor: pointer;
+
+              /* 动画过渡 */
+              transition: all 0.3s ease;
+
+              /* 微微的投影，增加层级感 */
+              box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+
+              /* 悬停效果 (Hover) */
+              &:hover {
+                background-color: #2563eb;
+                /* 颜色加深 */
+                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+                transform: translateY(-1px);
+                /* 轻轻向上浮动 */
+              }
+
+              /* 点击效果 (Active) */
+              &:active {
+                transform: translateY(0);
+                box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+              }
+            }
+          }
+
+        }
+
+        .main-content-right {
+          position: relative;
+          width: 50%;
+          height: 100%;
+          border-left: 1px solid #e9ecef;
+          padding: 0 20px;
+          display: flex;
+          flex-direction: column;
+
+          .document-section {
+            flex: 1;
+            overflow: auto;
+            background-color: #f5f5f5;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 80px;
+
+            &::-webkit-scrollbar {
+              width: 8px;
+              height: 8px;
+            }
+
+            &::-webkit-scrollbar-track {
+              background: #f1f1f1;
+              border-radius: 4px;
+            }
+
+            &::-webkit-scrollbar-thumb {
+              background: #888;
+              border-radius: 4px;
+
+              &:hover {
+                background: #555;
+              }
+            }
+          }
+
+          .document-download-section {
+            flex-shrink: 0;
+            padding: 15px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+
+            .demo-progress {
+              display: flex;
+              justify-content: flex-start;
+              align-items: center;
+              width: 100%;
+
+              .current-progress {
+                width: 100px;
+              }
+            }
+
+            .download-btn {
+              /* 基础定位与尺寸 */
+              align-self: flex-start;
+              min-width: 90px;
+              /* 稍微增加一点宽度，让文字不那么拥挤 */
+              height: 36px;
+              padding: 0 16px;
+
+              /* 核心样式 */
+              background-color: #3b82f6;
+              /* 经典的克莱因蓝，很有科技感 */
+              color: #ffffff;
+              border: none;
+              border-radius: 8px;
+              /* 圆角是现代感的灵魂 */
+
+              /* 字体样式 */
+              font-size: 14px;
+              font-weight: 500;
+              cursor: pointer;
+
+              /* 动画过渡 */
+              transition: all 0.3s ease;
+
+              /* 微微的投影，增加层级感 */
+              box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+
+              /* 悬停效果 (Hover) */
+              &:hover {
+                background-color: #2563eb;
+                /* 颜色加深 */
+                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+                transform: translateY(-1px);
+                /* 轻轻向上浮动 */
+              }
+
+              /* 点击效果 (Active) */
+              &:active {
+                transform: translateY(0);
+                box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+              }
+            }
+
+            .download-url-btn {
+              /* 基础定位与尺寸 */
+              align-self: flex-start;
+              min-width: 200px;
+              max-width: 100%;
+              height: 36px;
+              padding: 0 16px;
+
+              /* 核心样式 - 成功绿色 */
+              background-color: #10b981;
+              color: #ffffff;
+              border: none;
+              border-radius: 8px;
+
+              /* 字体样式 */
+              font-size: 13px;
+              font-weight: 500;
+              cursor: pointer;
+              text-overflow: ellipsis;
+              overflow: hidden;
+              white-space: nowrap;
+
+              /* 动画过渡 */
+              transition: all 0.3s ease;
+
+              /* 微微的投影，增加层级感 */
+              box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+
+              margin-top: 8px;
+
+              /* 悬停效果 (Hover) */
+              &:hover {
+                background-color: #059669;
+                box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+                transform: translateY(-1px);
+              }
+
+              /* 点击效果 (Active) */
+              &:active {
+                transform: translateY(0);
+                box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+              }
+            }
+          }
+        }
+      }
     }
-
-
-
 
     .chat-conversation-container {
       flex: 1;
       min-height: 0;
+      /* 只在对话区域出现滚动条 */
       overflow-y: auto;
       overflow-x: hidden;
+      // background-color: #f7f8fa;
+      /* 为左右两侧保留空隙，且使用 box-sizing 避免宽度溢出 */
       padding: 18px 16px;
       box-sizing: border-box;
+      top:40px;
 
       &::-webkit-scrollbar {
         width: 6px;
@@ -1240,14 +1292,14 @@ watch(
         margin: 4px 0;
       }
 
-      &::-webkit-scrollbar-thumb {
-        background: rgba(193, 199, 208, 0.6);
-        border-radius: 3px;
+      // &::-webkit-scrollbar-thumb {
+      //   background: rgba(193, 199, 208, 0.6);
+      //   border-radius: 3px;
 
-        &:hover {
-          background: rgba(168, 176, 188, 0.8);
-        }
-      }
+      //   &:hover {
+      //     background: rgba(168, 176, 188, 0.8);
+      //   }
+      // }
     }
 
     .chat-conversation {
@@ -1272,18 +1324,12 @@ watch(
       border-top: 1px solid #e9ecef;
       flex-shrink: 0;
       width: 100%;
-      background: white;
     }
 
     .welcome-section {
-      flex: 1;
       text-align: center;
       padding: 60px 20px;
       animation: fadeInUp 0.6s ease;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
 
       .avatar-wrapper {
         margin-bottom: 20px;
@@ -1326,53 +1372,38 @@ watch(
       }
 
       .template-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
         max-width: 800px;
         margin: 30px auto 0;
         padding: 0 20px;
+        justify-content: center;
 
         .template-item {
-          background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-          border: 2px solid #e5e7eb;
-          border-radius: 12px;
-          padding: 24px 20px;
+          background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+          border: 1px solid #e5e7eb;
+          border-radius: 24px;
+          padding: 10px 20px;
           cursor: pointer;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
           text-align: center;
+          font-size: 14px;
+          color: #4b5563;
+          font-weight: 500;
+          white-space: nowrap;
 
           &:hover {
-            border-color: #3b82f6;
-            transform: translateY(-4px);
-            box-shadow: 0 8px 24px rgba(59, 130, 246, 0.2);
-            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            border-color: #667eea;
+            color: #667eea;
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
           }
 
           &:active {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-          }
-
-          .template-icon {
-            font-size: 40px;
-            margin-bottom: 12px;
-            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-          }
-
-          h3 {
-            font-size: 16px;
-            font-weight: 600;
-            color: #1f2937;
-            margin: 0 0 8px 0;
-            line-height: 1.4;
-          }
-
-          .template-desc {
-            font-size: 13px;
-            color: #6b7280;
-            margin: 0;
+            transform: translateY(0);
           }
         }
       }
@@ -1508,10 +1539,16 @@ watch(
     .input-section {
       width: 100%;
       max-width: 100%;
-      margin: 0 auto;
+      margin: 0;
       padding: 10px;
       animation: fadeInUp 0.6s ease 0.2s both;
-      box-sizing: border-box;
+
+      // 响应式适配
+      @media (min-width: 769px) {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 15px;
+      }
 
       .input-wrapper {
         background: #ffffff;
@@ -1520,9 +1557,6 @@ watch(
         margin: 12px 16px;
         transition: all 0.3s ease;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-        max-width: 1200px;
-        margin-left: auto;
-        margin-right: auto;
         position: relative;
         z-index: 1;
 
@@ -1539,8 +1573,8 @@ watch(
 
         .message-input {
           position: relative;
-          top:5px;
-          left:5px;
+          top: 5px;
+          left: 5px;
           width: 100%;
           border: none;
           background: transparent;
@@ -1565,110 +1599,44 @@ watch(
 
           .footer-left {
             display: flex;
-            gap: 12px;
-            align-items: center;
+            gap: 10px;
 
             .selector-dropdown {
               position: relative;
-            }
-
-            .rerank-btn {
-              display: flex;
-              align-items: center;
-              gap: 6px;
-              padding: 6px 12px;
-              background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-              border: 1px solid #e5e7eb;
-              border-radius: 20px;
-              font-size: 12px;
-              color: #6b7280;
-              cursor: pointer;
-              transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-
-              .rerank-icon {
-                font-size: 14px;
-              }
-
-              .rerank-text {
-                font-weight: 500;
-                font-size: 12px;
-                white-space: nowrap;
-                user-select: none;
-              }
-
-              &:hover {
-                border-color: #667eea;
-                background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
-                color: #667eea;
-                transform: translateY(-1px);
-                box-shadow: 0 3px 8px rgba(102, 126, 234, 0.15);
-              }
-
-              &:active {
-                transform: scale(0.98);
-              }
-
-              &.active {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-color: #667eea;
-                color: white;
-                box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
-                transform: translateY(-1px);
-
-                .rerank-icon {
-                  animation: spin 1s linear infinite;
-                }
-              }
-            }
-
-            @keyframes spin {
-              from {
-                transform: rotate(0deg);
-              }
-              to {
-                transform: rotate(360deg);
-              }
-            }
-
-            .selector-dropdown {
 
               .selector-item {
                 display: flex;
                 align-items: center;
-                gap: 6px;
-                padding: 6px 12px;
-                background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+                gap: 8px;
+                padding: 8px 14px;
+                background: #f8f9fa;
                 border: 1px solid #e5e7eb;
-                border-radius: 20px;
+                border-radius: 8px;
                 font-size: 13px;
-                color: #6b7280;
+                color: #4b5563;
                 cursor: pointer;
-                transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                transition: all 0.2s ease;
                 user-select: none;
-                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 
                 .selector-icon {
-                  font-size: 14px;
+                  font-size: 16px;
                 }
 
                 .selector-icon-img {
-                  width: 16px;
-                  height: 16px;
+                  width: 20px;
+                  height: 20px;
                   object-fit: contain;
                   display: inline-block;
                 }
 
                 .selector-text {
                   font-weight: 500;
-                  font-size: 12px;
                 }
 
                 .selector-arrow {
                   font-size: 10px;
-                  opacity: 0.4;
+                  opacity: 0.5;
                   transition: transform 0.2s ease;
-                  margin-left: 2px;
                 }
 
                 &.open {
@@ -1678,30 +1646,22 @@ watch(
                 }
 
                 .selector-check {
-                  font-size: 12px;
+                  font-size: 14px;
                   color: #667eea;
                   font-weight: 600;
                 }
 
                 &:hover {
                   border-color: #667eea;
-                  background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+                  background: #f0f4ff;
                   color: #667eea;
-                  transform: translateY(-1px);
-                  box-shadow: 0 3px 8px rgba(102, 126, 234, 0.15);
                 }
 
                 &.active {
-                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
                   border-color: #667eea;
-                  color: white;
-                  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
-                  transform: translateY(-1px);
-
-                  .selector-arrow {
-                    opacity: 0.7;
-                    color: white;
-                  }
+                  color: #667eea;
+                  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.15);
                 }
 
                 &:active {
@@ -1711,14 +1671,13 @@ watch(
 
               .dropdown-menu {
                 position: absolute;
-                bottom: calc(100% + 10px);
-                left: 50%;
-                transform: translateX(-50%);
+                bottom: calc(100% + 8px);
+                left: 0;
                 min-width: 200px;
                 background: white;
                 border: 1px solid #e5e7eb;
-                border-radius: 14px;
-                box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.12);
+                border-radius: 12px;
+                box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.15);
                 z-index: 1000;
                 max-height: 320px;
                 overflow: hidden;
@@ -1726,10 +1685,11 @@ watch(
                 flex-direction: column;
 
                 &.tool-menu {
-                  min-width: 320px;
-                  max-height: 400px;
+                  min-width: 360px;
+                  max-height: 450px;
                 }
 
+                // 模型下拉尺寸与rag列表保持一致
                 &.model-menu {
                   min-width: 180px;
                   max-height: 450px;
@@ -1749,10 +1709,9 @@ watch(
                   display: flex;
                   justify-content: space-between;
                   align-items: center;
-                  padding: 14px 16px;
+                  padding: 12px 16px;
                   background: linear-gradient(135deg, #f8f9fa 0%, #f0f2f5 100%);
                   border-bottom: 1px solid #e5e7eb;
-                  border-radius: 14px 14px 0 0;
 
                   .header-title {
                     font-size: 14px;
@@ -2042,9 +2001,9 @@ watch(
             }
 
             .send-btn {
-              position:relative;
-              right:4px;
-              bottom:4px;
+              position: relative;
+              right: 4px;
+              bottom: 4px;
               width: 36px;
               height: 36px;
               display: flex;
@@ -2332,7 +2291,58 @@ watch(
       left: 2px;
       top: 2px;
     }
+  }
+}
+</style>
 
+<style lang="scss">
+.template-confirm-dialog {
+  .el-message-box {
+    border-radius: 12px !important;
+    padding: 20px !important;
+
+    .el-message-box__header {
+      padding-bottom: 15px;
+
+      .el-message-box__title {
+        font-size: 18px !important;
+        font-weight: 600 !important;
+        color: #1f2937 !important;
+      }
+    }
+
+    .el-message-box__content {
+      padding: 15px 0;
+
+      .el-message-box__message {
+        font-size: 15px !important;
+        color: #4b5563 !important;
+        line-height: 1.6 !important;
+      }
+    }
+
+    .el-message-box__btns {
+      padding-top: 15px;
+
+      .el-button--primary {
+        background-color: #3b82f6 !important;
+        border-color: #3b82f6 !important;
+        border-radius: 8px !important;
+        padding: 10px 24px !important;
+        font-weight: 500 !important;
+
+        &:hover {
+          background-color: #2563eb !important;
+          border-color: #2563eb !important;
+        }
+      }
+
+      .el-button--default {
+        border-radius: 8px !important;
+        padding: 10px 24px !important;
+        font-weight: 500 !important;
+      }
+    }
   }
 }
 </style>

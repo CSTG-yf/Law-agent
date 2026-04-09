@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { onMounted } from "vue"
 import { ElMessage } from 'element-plus'
-import { Agent } from "../../type"
+import { Agent } from "../../type/homepage"
 import { deleteAgentAPI } from '../../apis/agent'
 import { showDeleteConfirm } from '../../utils/dialog'
 

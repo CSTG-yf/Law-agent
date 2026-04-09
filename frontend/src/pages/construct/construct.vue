@@ -2,7 +2,7 @@
 import AgentCard from "../../components/agentCard/index"
 import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
-import { Agent } from "../../type"
+import { Agent } from "../../type/homepage"
 import { getAgentsAPI } from "../../apis/agent"
 
 

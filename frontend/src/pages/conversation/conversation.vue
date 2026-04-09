@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from "element-plus"
 import { getAgentsAPI } from "../../apis/agent"
 import { createDialogAPI, getDialogListAPI, deleteDialogAPI } from "../../apis/history"
 import type { AgentResponse, ApiResponse } from "../../apis/agent"
-import type { HistoryListType, DialogCreateType } from "../../type"
+import type { HistoryListType, DialogCreateType } from "../../type/homepage"
 import histortCard from '../../components/historyCard/histortCard.vue'
 import { useHistoryChatStore } from "../../store/history_chat_msg"
 

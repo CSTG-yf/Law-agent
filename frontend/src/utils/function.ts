@@ -1,6 +1,6 @@
 import { nextTick, ref } from "vue"
 import { ElScrollbar } from "element-plus"
-import { ChatMessage } from "../type"
+import { ChatMessage } from "../type/homepage"
 
 const scrollbar = ref<InstanceType<typeof ElScrollbar>>()
 

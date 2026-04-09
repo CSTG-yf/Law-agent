@@ -14,7 +14,7 @@ import {
   searchAgentsAPI,
   type AgentResponse 
 } from '../../apis/agent'
-import { Agent } from '../../type'
+import { Agent } from '../../type/homepage'
 
 
 const router = useRouter()

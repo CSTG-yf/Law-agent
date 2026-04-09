@@ -32,10 +32,10 @@ const handleLogin = async () => {
       
       // 使用store管理用户状态
       const userData = responseData.data || {}
-      if (userData.access_token && userData.user_id) {
+      if (userData.token && userData.user_id) {
         // 先保存基础用户信息
-        userStore.setUserInfo(userData.access_token, {
-          id: userData.user_id,
+        userStore.setUserInfo(userData.token, {
+          user_id: userData.user_id,
           username: loginForm.username
         })
         
