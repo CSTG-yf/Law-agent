@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import knowledgeIcon from '../../assets/knowledge.svg'
+import knowledgeIcon from '../../assets/call_word.svg'
 import { 
   getPromptsAPI,
   getPromptDetailAPI,
@@ -107,17 +107,17 @@ onMounted(() => {
           v-model="category"
           placeholder="按分类过滤（可选）"
           size="small"
-          style="width: 180px; margin-right: 8px;"
+          class="filter-input"
           clearable
         />
         <el-input
           v-model="tag"
           placeholder="按标签过滤（可选）"
           size="small"
-          style="width: 180px; margin-right: 12px;"
+          class="filter-input"
           clearable
         />
-        <el-button type="primary" @click="fetchPrompts">
+        <el-button type="primary" class="filter-refresh-btn" @click="fetchPrompts">
           刷新
         </el-button>
       </div>
@@ -222,6 +222,7 @@ onMounted(() => {
     .header-actions {
       display: flex;
       align-items: center;
+      gap: 10px;
     }
   }
 }
@@ -232,6 +233,16 @@ onMounted(() => {
   grid-template-columns: 260px minmax(0, 1fr);
   gap: 16px;
   height: calc(100vh - 160px);
+}
+
+.filter-input {
+  width: 190px;
+}
+
+.filter-refresh-btn {
+  padding: 10px 22px;
+  border-radius: 999px;
+  font-weight: 600;
 }
 
 .prompts-list {

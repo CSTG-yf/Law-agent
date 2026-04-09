@@ -9,6 +9,7 @@ import dialogIcon from '../assets/dialog.svg'
 import robotIcon from '../assets/robot.svg'
 import pluginIcon from '../assets/plugin.svg'
 import knowledgeIcon from '../assets/knowledge.svg'
+import knowledgeGraphIcon from '../assets/exported_image.svg'
 import modelIcon from '../assets/model.svg'
 import mcpIcon from '../assets/mcp.svg'
 import skillIcon from '../assets/skill.svg'
@@ -54,10 +55,13 @@ const appCenterColumns = ref([
   ],
   [
     { label: '知识库', icon: knowledgeIcon, route: '/knowledge' },
-    { label: '模型', icon: modelIcon, route: '/model' }
+    { label: '知识图谱', icon: knowledgeGraphIcon, route: '/knowledge-graph' }
   ],
   [
-    { label: 'MCP', icon: mcpIcon, route: '/mcp-server' },
+    { label: '模型', icon: modelIcon, route: '/model' },
+    { label: 'MCP', icon: mcpIcon, route: '/mcp-server' }
+  ],
+  [
     { label: 'Skill', icon: skillIcon, route: '/agent-skill' }
   ]
 ])
@@ -112,6 +116,7 @@ const goCurrent = (item: string) => {
     "agent": "/agent",
     "mcp-server": "/mcp-server",
     "knowledge": "/knowledge",
+    "knowledge-graph": "/knowledge-graph",
     "tool": "/tool",
     "agent-skill": "/agent-skill",
     "model": "/model",
@@ -278,6 +283,14 @@ watch(
                 <span>知识库</span>
               </template>
             </el-menu-item>
+            <el-menu-item index="knowledge-graph" @click="goCurrent('knowledge-graph')">
+              <template #title>
+                <el-icon>
+                  <img src="../assets/exported_image.svg" width="22px" height="22px" />
+                </el-icon>
+                <span>知识图谱</span>
+              </template>
+            </el-menu-item>
             <el-menu-item index="tool" @click="goCurrent('tool')">
               <template #title>
                 <el-icon>
@@ -289,7 +302,7 @@ watch(
             <el-menu-item index="prompt" @click="goCurrent('prompt')">
               <template #title>
                 <el-icon>
-                  <img src="../assets/skill.svg" width="22px" height="22px" />
+                  <img src="../assets/call_word.svg" width="22px" height="22px" />
                 </el-icon>
                 <span>提示词</span>
               </template>
