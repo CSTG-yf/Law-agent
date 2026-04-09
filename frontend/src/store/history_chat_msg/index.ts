@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue'
-import { ChatMessage } from '../../type';
+import { ChatMessage } from '../../type/homepage';
 import { getHistoryMsgAPI } from '../../apis/history';
 import { ElMessage } from 'element-plus';
 

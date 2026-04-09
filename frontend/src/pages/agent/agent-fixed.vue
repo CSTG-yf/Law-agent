@@ -7,7 +7,7 @@ import {
   deleteAgentAPI, 
   searchAgentsAPI
 } from '../../apis/agent'
-import { Agent } from '../../type'
+import { Agent } from '../../type/homepage'
 import AgentFormDialog from '../../components/dialog/create_agent/AgentFormDialog.vue'
 
 const agents = ref<Agent[]>([])

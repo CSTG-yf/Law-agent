@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue'
-import { HistoryListType } from "../../type"
+import { HistoryListType } from "../../type/homepage"
 import { getDialogListAPI} from '../../apis/history';
 
 export const useHistoryListStore = defineStore('history_list', () => {

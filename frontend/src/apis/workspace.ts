@@ -1,6 +1,6 @@
 import { request } from '../utils/request'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
-import type { ChatRequest } from '../type'
+import type { ChatRequest } from '../type/homepage'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 

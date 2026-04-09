@@ -3,12 +3,18 @@ import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
+import path from 'path'
 
 export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
   // 加载环境变量，第二个参数是项目根目录
   const env = loadEnv(mode, process.cwd())
 
   return {
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
+    },
     server: {
       host: '0.0.0.0',  // 允许外部访问
       port: 8090,       // 前端开发服务器端口

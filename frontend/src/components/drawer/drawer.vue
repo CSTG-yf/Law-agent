@@ -2,7 +2,7 @@
 import { reactive, ref, onMounted, computed } from "vue"
 import CommonCard from "../../components/commonCard"
 import { getAgentsAPI } from "../../apis/agent"
-import { Agent } from '../../type'
+import { Agent } from '../../type/homepage'
 import { ElMessage } from "element-plus"
 import { Search, Plus } from '@element-plus/icons-vue'
 

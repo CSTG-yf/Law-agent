@@ -6,9 +6,8 @@ export interface LoginForm {
 }
 
 export interface RegisterForm {
-  user_name: string
-  user_email?: string
-  user_password: string
+  username: string
+  password: string
 }
 
 export interface LoginResponse {
@@ -37,22 +36,26 @@ export interface UpdateUserResponse {
 
 // 登录接口
 export const loginAPI = (data: LoginForm) => {
-  return request<LoginResponse>({
+  return request({
     url: '/api/v1/auth/login',
     method: 'POST',
     data: {
-      user_name: data.username,
-      user_password: data.password
+      username: data.username,
+      password: data.password
     }
   })
 }
+
 
 // 注册接口
 export const registerAPI = (data: RegisterForm) => {
   return request({
     url: '/api/v1/auth/register',
     method: 'POST',
-    data
+    data: {
+      username: data.username,
+      password: data.password
+    }
   })
 }
 

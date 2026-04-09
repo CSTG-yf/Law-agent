@@ -22,7 +22,7 @@ import { getVisibleToolsAPI, type ToolResponse } from '../../apis/tool'
 import { getMCPServersAPI, type MCPServer } from '../../apis/mcp-server'
 import { getKnowledgeListAPI, type KnowledgeResponse } from '../../apis/knowledge'
 import { getAgentSkillsAPI, type AgentSkill } from '../../apis/agent-skill'
-import { Agent, AgentFormData } from '../../type'
+import { Agent, AgentFormData } from '../../type/homepage'
 import { uploadFileAPI } from '../../apis/file'
 
 const route = useRoute()
