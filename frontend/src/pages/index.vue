@@ -75,7 +75,7 @@ onMounted(async () => {
   // 如果已登录但没有头像，则尝试获取用户信息
   if (userStore.isLoggedIn && userStore.userInfo && !userStore.userInfo.avatar) {
     try {
-      const response = await getUserInfoAPI(userStore.userInfo.id)
+      const response = await getUserInfoAPI(userStore.userInfo.user_id)
       if (response.data.status_code === 200 && response.data.data) {
         const userData = response.data.data
         userStore.updateUserInfo({
@@ -117,7 +117,8 @@ const goCurrent = (item: string) => {
     "agent-skill": "/agent-skill",
     "model": "/model",
     "workspace": "/workspace",
-    "dashboard": "/dashboard"
+    "dashboard": "/dashboard",
+    "prompt": "/prompt"
   }
 
   router.push(routes[item] || "/")
@@ -251,6 +252,14 @@ watch(
                   <img src="../assets/plugin.svg" width="22px" height="22px" />
                 </el-icon>
                 <span>工具</span>
+              </template>
+            </el-menu-item>
+            <el-menu-item index="prompt" @click="goCurrent('prompt')">
+              <template #title>
+                <el-icon>
+                  <img src="../assets/skill.svg" width="22px" height="22px" />
+                </el-icon>
+                <span>提示词</span>
               </template>
             </el-menu-item>
             <el-menu-item index="agent-skill" @click="goCurrent('agent-skill')">

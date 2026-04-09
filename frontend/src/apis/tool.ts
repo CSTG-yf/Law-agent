@@ -1,6 +1,6 @@
 import { request } from "../utils/request"
 
-// 工具相关接口类型定义
+// 工具相关接口类型定义（OpenAPI 自定义工具）
 export interface ToolResponse {
   tool_id: string
   name: string  // 英文名称，大模型调用
@@ -14,6 +14,24 @@ export interface ApiResponse<T> {
   status_code: number
   status_message: string
   data: T
+}
+
+// Chat 工具列表接口返回结构
+export interface ChatTool {
+  name: string
+  description: string
+  category: string
+  enabled: boolean
+}
+
+export interface ChatToolsApiResponse {
+  code: number
+  status: string
+  message: string
+  data: {
+    tools: ChatTool[]
+    total: number
+  }
 }
 
 // 获取所有工具
@@ -37,6 +55,14 @@ export function getVisibleToolsAPI() {
   return request<ApiResponse<ToolResponse[]>>({
     url: '/api/v1/tool/all',
     method: 'POST'
+  })
+}
+
+// 获取 Chat 可用工具列表
+export function getChatToolsAPI() {
+  return request<ChatToolsApiResponse>({
+    url: '/api/v1/chat/tools',
+    method: 'GET'
   })
 }
 
