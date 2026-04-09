@@ -358,18 +358,31 @@ class Neo4jGraphStore:
                     rel_list = record.get("r", [])
                     if isinstance(rel_list, list):
                         for rel in rel_list:
-                            rel_id = rel.get("id", "")
-                            if rel_id and rel_id not in rel_ids:
+                            if isinstance(rel, tuple):
+                                rel_id = str(rel[0]) if len(rel) > 0 else ""
+                                rel_type = rel[1] if len(rel) > 1 else ""
+                                start_node = str(rel[2]) if len(rel) > 2 else ""
+                                end_node = str(rel[3]) if len(rel) > 3 else ""
+                                rel_props = rel[4] if len(rel) > 4 and isinstance(rel[4], dict) else {}
+                            elif isinstance(rel, dict):
+                                rel_id = rel.get("id", "")
                                 rel_type = rel.get("type", "")
+                                start_node = rel.get("startNode", "")
+                                end_node = rel.get("endNode", "")
+                                rel_props = rel.get("properties", {})
+                            else:
+                                continue
+                            
+                            if rel_id and rel_id not in rel_ids:
                                 if relation_types and rel_type not in relation_types:
                                     continue
                                 rel_ids.add(rel_id)
                                 relationships.append({
                                     "id": rel_id,
                                     "type": rel_type,
-                                    "startNode": rel.get("startNode", ""),
-                                    "endNode": rel.get("endNode", ""),
-                                    "properties": rel.get("properties", {})
+                                    "startNode": start_node,
+                                    "endNode": end_node,
+                                    "properties": rel_props
                                 })
             
             if node_ids:
@@ -388,8 +401,21 @@ class Neo4jGraphStore:
                 
                 for record in rel_results:
                     rel_data = record.get("r", {})
-                    rel_id = rel_data.get("id", "")
-                    rel_type = rel_data.get("type", "")
+                    
+                    if isinstance(rel_data, tuple):
+                        rel_id = str(rel_data[0]) if len(rel_data) > 0 else ""
+                        rel_type = rel_data[1] if len(rel_data) > 1 else ""
+                        start_node = str(rel_data[2]) if len(rel_data) > 2 else ""
+                        end_node = str(rel_data[3]) if len(rel_data) > 3 else ""
+                        rel_props = rel_data[4] if len(rel_data) > 4 and isinstance(rel_data[4], dict) else {}
+                    elif isinstance(rel_data, dict):
+                        rel_id = rel_data.get("id", "")
+                        rel_type = rel_data.get("type", "")
+                        start_node = rel_data.get("startNode", "")
+                        end_node = rel_data.get("endNode", "")
+                        rel_props = rel_data.get("properties", {})
+                    else:
+                        continue
                     
                     if relation_types and rel_type not in relation_types:
                         continue
@@ -399,9 +425,9 @@ class Neo4jGraphStore:
                         relationships.append({
                             "id": rel_id,
                             "type": rel_type,
-                            "startNode": rel_data.get("startNode", ""),
-                            "endNode": rel_data.get("endNode", ""),
-                            "properties": rel_data.get("properties", {})
+                            "startNode": start_node,
+                            "endNode": end_node,
+                            "properties": rel_props
                         })
             
             logger.info(
