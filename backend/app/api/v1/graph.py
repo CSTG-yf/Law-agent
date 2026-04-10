@@ -458,17 +458,18 @@ async def clear_graph():
 async def get_visualization_data(request: VisualizationRequest):
     """
     获取知识图谱可视化数据
-    
+
     返回 NVL (Neo4j Visualization Library) 兼容的数据格式：
     - nodes: 节点列表，包含 id, labels, properties
     - relationships: 关系列表，包含 id, type, startNode, endNode, properties
-    
+
     支持的参数：
     - node_types: 过滤节点类型（如 ["LawArticle", "LegalCase"]）
     - relation_types: 过滤关系类型（如 ["APPLIES_LAW", "INVOLVES"]）
     - node_limit: 节点数量限制（默认 100，最大 1000）
     - depth: 关系深度（默认 2，范围 1-3）
     - search_term: 搜索关键词，匹配节点名称
+    - file_hash: 文档哈希值，根据source_documents属性过滤特定文档的节点
     """
     try:
         logger.info(
@@ -485,7 +486,8 @@ async def get_visualization_data(request: VisualizationRequest):
             relation_types=request.relation_types,
             node_limit=request.node_limit,
             depth=request.depth,
-            search_term=request.search_term
+            search_term=request.search_term,
+            file_hash=request.file_hash
         )
         
         nodes = [VisualizationNode(**n) for n in data.get("nodes", [])]
@@ -525,32 +527,43 @@ async def get_visualization_data_get(
     relation_types: Optional[str] = Query(None, description="关系类型，多个用逗号分隔"),
     node_limit: int = Query(100, description="节点数量限制", ge=1, le=1000),
     depth: int = Query(2, description="关系深度", ge=1, le=3),
-    search_term: Optional[str] = Query(None, description="搜索关键词")
+    search_term: Optional[str] = Query(None, description="搜索关键词"),
+    file_hash: Optional[str] = Query(None, description="文档哈希值，根据source_documents属性过滤特定文档的节点")
 ):
     """
     获取知识图谱可视化数据（GET 方式）
-    
+
     返回 NVL (Neo4j Visualization Library) 兼容的数据格式
+
+    支持的参数：
+    - node_types: 过滤节点类型（如 "LawArticle,LegalCase"）
+    - relation_types: 过滤关系类型（如 "APPLIES_LAW,INVOLVES"）
+    - node_limit: 节点数量限制（默认 100，最大 1000）
+    - depth: 关系深度（默认 2，范围 1-3）
+    - search_term: 搜索关键词，匹配节点名称
+    - file_hash: 文档哈希值，根据source_documents属性过滤特定文档的节点
     """
     try:
         node_types_list = node_types.split(",") if node_types else None
         relation_types_list = relation_types.split(",") if relation_types else None
-        
+
         logger.info(
             f"获取可视化数据(GET) - "
             f"node_types: {node_types_list}, "
             f"relation_types: {relation_types_list}, "
             f"node_limit: {node_limit}, "
             f"depth: {depth}, "
-            f"search_term: {search_term}"
+            f"search_term: {search_term}, "
+            f"file_hash: {file_hash[:8] if file_hash else None}"
         )
-        
+
         data = graph_store.get_visualization_data(
             node_types=node_types_list,
             relation_types=relation_types_list,
             node_limit=node_limit,
             depth=depth,
-            search_term=search_term
+            search_term=search_term,
+            file_hash=file_hash
         )
         
         nodes = [VisualizationNode(**n) for n in data.get("nodes", [])]

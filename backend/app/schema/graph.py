@@ -73,6 +73,7 @@ class VisualizationRequest(BaseModel):
     node_limit: Optional[int] = Field(100, description="节点数量限制", ge=1, le=1000)
     depth: Optional[int] = Field(2, description="关系深度（1-3）", ge=1, le=3)
     search_term: Optional[str] = Field(None, description="搜索关键词，匹配节点名称")
+    file_hash: Optional[str] = Field(None, description="文档哈希值，根据source_documents属性过滤特定文档的节点")
 
 
 class VisualizationResponse(BaseModel):

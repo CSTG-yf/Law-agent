@@ -134,7 +134,8 @@ def build_graph_task(
         
         result = asyncio.run(graph_builder.build_from_document(
             file_path=file_path,
-            document_type=document_type
+            document_type=document_type,
+            file_hash=file_hash
         ))
         
         logger.info(

@@ -266,52 +266,57 @@ class Neo4jGraphStore:
         relation_types: List[str] = None,
         node_limit: int = 100,
         depth: int = 2,
-        search_term: str = None
+        search_term: str = None,
+        file_hash: str = None
     ) -> Dict[str, Any]:
         """
         获取可视化数据（NVL 兼容格式）
-        
+
         Args:
             node_types: 过滤节点类型
             relation_types: 过滤关系类型
             node_limit: 节点数量限制
             depth: 关系深度
             search_term: 搜索关键词
-            
+            file_hash: 文档哈希值，根据source_documents属性过滤特定文档的节点
+
         Returns:
             包含 nodes 和 relationships 的字典
         """
         if not self.driver:
             logger.error("数据库未连接")
             return {"nodes": [], "relationships": []}
-        
+
         try:
             nodes = []
             relationships = []
             node_ids = set()
             rel_ids = set()
-            
-            node_filter = ""
+
+            node_filter_parts = []
+            params = {"limit": node_limit}
+
             if node_types:
-                node_filter = f"WHERE labels(n)[0] IN {node_types}"
-            
+                node_filter_parts.append(f"labels(n)[0] IN $node_types")
+                params["node_types"] = node_types
+
             if search_term:
-                if node_filter:
-                    node_filter += f" AND n.name CONTAINS $search_term"
-                else:
-                    node_filter = "WHERE n.name CONTAINS $search_term"
-            
+                node_filter_parts.append("n.name CONTAINS $search_term")
+                params["search_term"] = search_term
+
+            if file_hash:
+                node_filter_parts.append("$file_hash IN n.source_documents")
+                params["file_hash"] = file_hash
+
+            node_filter = "WHERE " + " AND ".join(node_filter_parts) if node_filter_parts else ""
+
             node_query = f"""
             MATCH (n)
             {node_filter}
             RETURN n
             LIMIT $limit
             """
-            
-            params = {"limit": node_limit}
-            if search_term:
-                params["search_term"] = search_term
-            
+
             node_results = self.execute_query(node_query, params)
             
             for record in node_results:
@@ -326,22 +331,39 @@ class Neo4jGraphStore:
                     })
             
             if node_ids:
+                depth_params = {
+                    "node_ids": list(node_ids),
+                    "limit": node_limit * 2
+                }
+
                 depth_query = f"""
                 MATCH (n)
                 WHERE n.id IN $node_ids OR n.name IN $node_ids
+                """
+
+                if file_hash:
+                    depth_query += f"\nAND $file_hash IN n.source_documents"
+
+                depth_query += f"""
                 CALL {{
                     WITH n
                     MATCH (n)-[r*1..{depth}]-(related)
+                """
+
+                if file_hash:
+                    depth_query += f"\nWHERE $file_hash IN related.source_documents"
+
+                depth_query += f"""
                     RETURN related, r
                     LIMIT $limit
                 }}
                 RETURN DISTINCT related, r
                 """
-                
-                depth_results = self.execute_query(depth_query, {
-                    "node_ids": list(node_ids),
-                    "limit": node_limit * 2
-                })
+
+                if file_hash:
+                    depth_params["file_hash"] = file_hash
+
+                depth_results = self.execute_query(depth_query, depth_params)
                 
                 for record in depth_results:
                     related_node = record.get("related", {})

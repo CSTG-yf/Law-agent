@@ -55,7 +55,8 @@ class KnowledgeGraphBuilderV2:
         file_path: str,
         document_type: str = "legal",
         chunk_size: int = 1000,
-        chunk_overlap: int = 100
+        chunk_overlap: int = 100,
+        file_hash: str = None
     ) -> Dict[str, Any]:
         """
         从文档构建知识图谱
@@ -65,6 +66,7 @@ class KnowledgeGraphBuilderV2:
             document_type: 文档类型 (legal/case/general)
             chunk_size: 文本分块大小
             chunk_overlap: 文本分块重叠大小
+            file_hash: 文件哈希值，用于标识文档来源
             
         Returns:
             构建结果统计
@@ -107,13 +109,18 @@ class KnowledgeGraphBuilderV2:
             
             for graph_doc in graph_documents:
                 for node in graph_doc.nodes:
+                    node_properties = {
+                        "id": node.id,
+                        "type": node.type,
+                        **node.properties
+                    }
+                    
+                    if file_hash:
+                        node_properties["source_documents"] = [file_hash]
+                    
                     node_id = self.graph_store.create_node(
                         node.type,
-                        {
-                            "id": node.id,
-                            "type": node.type,
-                            **node.properties
-                        }
+                        node_properties
                     )
                     if node_id:
                         nodes_count += 1

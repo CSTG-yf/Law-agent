@@ -7,7 +7,11 @@ from langchain_core.messages import BaseMessage, AIMessage
 
 class SSEStreamer:
     GENERATE_NODE_NAMES = {"generate", "agent", "chat", "llm"}
-    SKIP_NODE_NAMES = {"intent_classifier", "query_rewriter", "intent", "rewrite", "classify", "retrieval_pipeline"}
+    SKIP_NODE_NAMES = {
+        "intent_classifier", "query_rewriter", "intent", "rewrite", "classify", 
+        "retrieval_pipeline", "keyword_extraction", "graph_retriever", "entity_extractor",
+        "pre_retriever", "reranker", "hybrid_retriever", "rag_retriever"
+    }
 
     def __init__(self):
         pass

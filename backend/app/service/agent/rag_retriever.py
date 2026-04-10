@@ -15,7 +15,7 @@ class RAGRetriever:
         self.vector_store = vector_store
         self.rag_service = AdvancedRAGService(vector_store)
         self.reranker = Reranker()
-        self.graph_retriever = GraphRetriever()
+        self.graph_retriever = GraphRetriever(vector_store=vector_store)
         logger.info("RAG检索器初始化成功 - 包含知识图谱检索")
 
     async def retrieve(
