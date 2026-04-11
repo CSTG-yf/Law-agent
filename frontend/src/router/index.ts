@@ -13,6 +13,7 @@ import Agent from '../pages/agent'
 import AgentEditor from '../pages/agent/agent-editor.vue'
 import McpServer from '../pages/mcp-server'
 import Knowledge from '../pages/knowledge'
+import KnowledgeGraph from '../pages/knowledge-graph'
 import PromptPage from '../pages/prompt'
 import KnowledgeFile from '../pages/knowledge/knowledge-file.vue'
 import Tool from '../pages/tool'
@@ -167,6 +168,14 @@ const routes: RouteRecordRaw[] = [
           current: 'knowledge'
         },
         component: Knowledge,
+      },
+      {
+        path: '/knowledge-graph',
+        name: 'knowledge-graph',
+        meta: {
+          current: 'knowledge-graph'
+        },
+        component: KnowledgeGraph,
       },
       {
         path: '/prompt',

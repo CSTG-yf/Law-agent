@@ -91,12 +91,24 @@ const handleFileChange = async (event: Event) => {
     console.log('文件上传响应:', res)
     // 一般我们更关心 res.data 的内容
     console.log('上传返回的数据:', res.data)
-    ElMessage.success('文件上传成功，服务器将异步处理')
+    const successMsg = (res.data as any)?.message || '文件上传成功，服务器将异步处理'
+    ElMessage.success(successMsg)
+    await ElMessageBox.alert(successMsg, '上传成功', {
+      type: 'success'
+    })
     // 上传完成后，重新拉取一次文档列表
     await handleGetDocuments()
   } catch (error) {
     console.error('上传文档失败:', error)
-    ElMessage.error('上传文档失败')
+    const errMessage =
+      (error as any)?.response?.data?.status_message ||
+      (error as any)?.response?.data?.message ||
+      (error as any)?.message ||
+      '上传文档失败'
+    ElMessage.error(errMessage)
+    await ElMessageBox.alert(errMessage, '上传失败', {
+      type: 'error'
+    })
   } finally {
     uploading.value = false
     // 清空 input，避免同一个文件无法再次选择
@@ -120,11 +132,23 @@ const handleBatchFileChange = async (event: Event) => {
     const res = await uploadRagDocumentsBatchAPI(formData)
     console.log('批量上传响应:', res)
     console.log('批量上传返回的数据:', res.data)
-    ElMessage.success('ZIP 批量上传成功，服务器将异步处理')
+    const successMsg = (res.data as any)?.message || 'ZIP 批量上传成功，服务器将异步处理'
+    ElMessage.success(successMsg)
+    await ElMessageBox.alert(successMsg, '批量上传成功', {
+      type: 'success'
+    })
     await handleGetDocuments()
   } catch (error) {
     console.error('批量上传文档失败:', error)
-    ElMessage.error('批量上传文档失败')
+    const errMessage =
+      (error as any)?.response?.data?.status_message ||
+      (error as any)?.response?.data?.message ||
+      (error as any)?.message ||
+      '批量上传文档失败'
+    ElMessage.error(errMessage)
+    await ElMessageBox.alert(errMessage, '批量上传失败', {
+      type: 'error'
+    })
   } finally {
     batchUploading.value = false
     if (input) input.value = ''
