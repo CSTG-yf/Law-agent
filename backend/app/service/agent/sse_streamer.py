@@ -21,23 +21,6 @@ class SSEStreamer:
         if in_generate_phase:
             return True
         
-        tags = event.get("tags", [])
-        event_name = event.get("name", "").lower()
-        
-        for tag in tags:
-            tag_lower = tag.lower() if isinstance(tag, str) else ""
-            for skip_name in SSEStreamer.SKIP_NODE_NAMES:
-                if skip_name in tag_lower:
-                    return False
-        
-        for skip_name in SSEStreamer.SKIP_NODE_NAMES:
-            if skip_name in event_name:
-                return False
-        
-        for gen_name in SSEStreamer.GENERATE_NODE_NAMES:
-            if gen_name in event_name:
-                return True
-        
         return False
 
     @staticmethod
