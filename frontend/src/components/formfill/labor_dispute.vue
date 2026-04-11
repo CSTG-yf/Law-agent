@@ -84,11 +84,11 @@
                 联系电话：<editable-field :value="agent.phone || '点击填写'" field-key="phone" block-id="agent" @update="handleUpdate" />
               </div>
               <div class="info-line">
-                <span class="checkbox-item" @click="handleToggle('agent', 'auth', false)">
-                  代理权限：一般授权 [ {{ agent.auth === false ? '√' : ' ' }} ]
+                <span class="checkbox-item" @click="handleToggle('agent', 'auth', '一般')">
+                  代理权限：一般授权 [ {{ agent.auth === '一般' ? '√' : ' ' }} ]
                 </span>
-                <span class="checkbox-item" @click="handleToggle('agent', 'auth', true)">
-                  特别授权 [ {{ agent.auth === true ? '√' : ' ' }} ]
+                <span class="checkbox-item" @click="handleToggle('agent', 'auth', '特别')">
+                  特别授权 [ {{ agent.auth === '特别' ? '√' : ' ' }} ]
                 </span>
               </div>
             </template>
