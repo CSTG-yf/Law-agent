@@ -293,8 +293,6 @@ const handleSend = async () => {
       console.log('messages 长度:', messages.value.length)
 
       await nextTick()
-      
-      completion_rate.value = response.data.data.completion_rate || 0
 
       await fetchFormFillStatus()
       await fetchSessions()
