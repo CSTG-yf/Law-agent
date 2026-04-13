@@ -55,7 +55,7 @@
         <!-- API 配置 -->
         <el-divider content-position="left">API 配置</el-divider>
         
-        <el-form-item label="OpenAI Base URL">
+        <el-form-item label="OpenAI 基础 URL">
           <el-input 
             v-model="configForm.OPENAI_BASE_URL" 
             placeholder="请输入 OpenAI API 基础 URL"
@@ -63,7 +63,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="OpenAI API Key">
+        <el-form-item label="OpenAI API 密钥">
           <el-input 
             v-model="configForm.OPENAI_API_KEY" 
             type="password"
@@ -73,7 +73,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="DashScope API Key">
+        <el-form-item label="DashScope API 密钥">
           <el-input 
             v-model="configForm.DASHSCOPE_API_KEY" 
             type="password"
@@ -83,7 +83,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="Hugging Face Token">
+        <el-form-item label="Hugging Face 令牌">
           <el-input 
             v-model="configForm.HF_TOKEN" 
             type="password"
@@ -103,6 +103,36 @@
             @input="handleConfigChange"
           />
         </el-form-item>
+
+        <!-- 知识图谱配置 -->
+         <el-divider content-position="left">知识图谱配置</el-divider>
+
+        <el-form-item label="知识图谱名称">
+          <el-input 
+            v-model="configForm.GRAPH_MODEL_NAME" 
+            placeholder="请输入 GRAPH_MODEL_NAME"
+            @input="handleConfigChange"
+          />
+        </el-form-item>
+
+        <el-form-item label="是否启用严格模式">
+          <el-switch 
+            v-model="configForm.GRAPH_STRICT_MODE" 
+            @change="handleConfigChange"
+          />
+        </el-form-item>
+
+        <el-form-item label="知识图谱提取时单个文本块的最大字符数">
+          <el-input-number 
+            v-model="configForm.GRAPH_MAX_CHUNK_SIZE" 
+            :min="0"
+            :max="100000000"
+            :step="1"
+            controls-position="right"
+            @change="handleConfigChange"
+          />
+        </el-form-item>
+
 
         <!-- RAG 配置 -->
         <el-divider content-position="left">RAG 检索配置</el-divider>
@@ -211,6 +241,11 @@
               <el-icon class="loading-icon"><Loading /></el-icon>
               <span>正在测试模型配置，请稍候...</span>
             </div>
+
+            <div v-else class="initial-tip">
+              <el-icon class="tip-icon"><Promotion /></el-icon>
+              <span>点击下方"开始测试"按钮测试模型配置</span>
+            </div>
           </div>
         </div>
 
@@ -219,7 +254,7 @@
             {{ testing ? '测试中...' : '关闭' }}
           </el-button>
           <el-button type="primary" @click="handleTestModel" :loading="testing">
-            {{ testing ? '测试中...' : '重新测试' }}
+            {{ testing ? '测试中...' : (testResult ? '重新测试' : '开始测试') }}
           </el-button>
         </div>
       </div>
@@ -230,7 +265,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { RefreshRight, SuccessFilled, CircleCloseFilled, Loading, Close } from '@element-plus/icons-vue'
+import { RefreshRight, SuccessFilled, CircleCloseFilled, Loading, Close, Promotion } from '@element-plus/icons-vue'
 // 按需引入 ECharts，避免打包体积和解析问题
 import * as echarts from 'echarts/core'
 import type { ECharts as EChartsInstance } from 'echarts/core'
@@ -296,18 +331,25 @@ interface ConfigForm {
   RAG_FETCH_K: number
   PRE_RETRIEVE_TOP_K: number
   MAX_HISTORY_LENGTH: number
+  GRAPH_MODEL_NAME: string
+  GRAPH_STRICT_MODE: boolean
+  GRAPH_MAX_CHUNK_SIZE: number
 }
 
+// 配置表单数据
 const configForm = reactive<ConfigForm>({
   OPENAI_BASE_URL: '',
   OPENAI_API_KEY: '',
   DASHSCOPE_API_KEY: '',
   HF_TOKEN: '',
   MODEL_NAME: '',
-  RAG_TOP_K: 5,
-  RAG_FETCH_K: 20,
-  PRE_RETRIEVE_TOP_K: 5,
-  MAX_HISTORY_LENGTH: 10
+  RAG_TOP_K: 0,
+  RAG_FETCH_K: 0,
+  PRE_RETRIEVE_TOP_K: 0,
+  MAX_HISTORY_LENGTH: 0,
+  GRAPH_MODEL_NAME: '',
+  GRAPH_STRICT_MODE: false,
+  GRAPH_MAX_CHUNK_SIZE: 0
 })
 
 // 保存原始配置用于对比
@@ -317,10 +359,13 @@ const originalConfig = reactive<ConfigForm>({
   DASHSCOPE_API_KEY: '',
   HF_TOKEN: '',
   MODEL_NAME: '',
-  RAG_TOP_K: 5,
-  RAG_FETCH_K: 20,
-  PRE_RETRIEVE_TOP_K: 5,
-  MAX_HISTORY_LENGTH: 10
+  RAG_TOP_K: 0,
+  RAG_FETCH_K: 0,
+  PRE_RETRIEVE_TOP_K: 0,
+  MAX_HISTORY_LENGTH: 0,
+  GRAPH_MODEL_NAME: '',
+  GRAPH_STRICT_MODE: false,
+  GRAPH_MAX_CHUNK_SIZE: 0
 })
 
 const configLoading = ref(false)
@@ -348,7 +393,10 @@ const hasChanges = computed(() => {
     configForm.RAG_TOP_K !== originalConfig.RAG_TOP_K ||
     configForm.RAG_FETCH_K !== originalConfig.RAG_FETCH_K ||
     configForm.PRE_RETRIEVE_TOP_K !== originalConfig.PRE_RETRIEVE_TOP_K ||
-    configForm.MAX_HISTORY_LENGTH !== originalConfig.MAX_HISTORY_LENGTH
+    configForm.MAX_HISTORY_LENGTH !== originalConfig.MAX_HISTORY_LENGTH ||
+    configForm.GRAPH_MODEL_NAME !== originalConfig.GRAPH_MODEL_NAME ||
+    configForm.GRAPH_STRICT_MODE !== originalConfig.GRAPH_STRICT_MODE ||
+    configForm.GRAPH_MAX_CHUNK_SIZE !== originalConfig.GRAPH_MAX_CHUNK_SIZE
   )
 })
 
@@ -366,10 +414,13 @@ const fetchConfig = async () => {
       configForm.DASHSCOPE_API_KEY = config.DASHSCOPE_API_KEY?.trim() || ''
       configForm.HF_TOKEN = config.HF_TOKEN?.trim() || ''
       configForm.MODEL_NAME = config.MODEL_NAME?.trim() || ''
-      configForm.RAG_TOP_K = parseInt(config.RAG_TOP_K) || 5
-      configForm.RAG_FETCH_K = parseInt(config.RAG_FETCH_K) || 20
-      configForm.PRE_RETRIEVE_TOP_K = parseInt(config.PRE_RETRIEVE_TOP_K) || 5
-      configForm.MAX_HISTORY_LENGTH = parseInt(config.MAX_HISTORY_LENGTH) || 10
+      configForm.RAG_TOP_K = parseInt(config.RAG_TOP_K) 
+      configForm.RAG_FETCH_K = parseInt(config.RAG_FETCH_K) 
+      configForm.PRE_RETRIEVE_TOP_K = parseInt(config.PRE_RETRIEVE_TOP_K) 
+      configForm.MAX_HISTORY_LENGTH = parseInt(config.MAX_HISTORY_LENGTH) 
+      configForm.GRAPH_MODEL_NAME = config.GRAPH_MODEL_NAME?.trim() || ''
+      configForm.GRAPH_STRICT_MODE = config.GRAPH_STRICT_MODE === 'true'
+      configForm.GRAPH_MAX_CHUNK_SIZE = parseInt(config.GRAPH_MAX_CHUNK_SIZE) 
 
       // 保存原始配置用于对比
       Object.assign(originalConfig, configForm)
@@ -430,6 +481,15 @@ const handleSaveConfig = async () => {
     }
     if (configForm.MAX_HISTORY_LENGTH !== originalConfig.MAX_HISTORY_LENGTH) {
       updateData.MAX_HISTORY_LENGTH = String(configForm.MAX_HISTORY_LENGTH)
+    }
+    if (configForm.GRAPH_MODEL_NAME !== originalConfig.GRAPH_MODEL_NAME) {
+      updateData.GRAPH_MODEL_NAME = configForm.GRAPH_MODEL_NAME
+    }
+    if (configForm.GRAPH_STRICT_MODE !== originalConfig.GRAPH_STRICT_MODE) {
+      updateData.GRAPH_STRICT_MODE = configForm.GRAPH_STRICT_MODE ? 'true' : 'false'
+    }
+    if (configForm.GRAPH_MAX_CHUNK_SIZE !== originalConfig.GRAPH_MAX_CHUNK_SIZE) {
+      updateData.GRAPH_MAX_CHUNK_SIZE = String(configForm.GRAPH_MAX_CHUNK_SIZE)
     }
 
     // 调用更新接口
@@ -1365,6 +1425,21 @@ onBeforeUnmount(() => {
           .loading-icon {
             font-size: 32px;
             animation: rotating 2s linear infinite;
+          }
+        }
+
+        .initial-tip {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+          padding: 40px 0;
+          color: #909399;
+
+          .tip-icon {
+            font-size: 32px;
+            color: #409EFF;
           }
         }
       }

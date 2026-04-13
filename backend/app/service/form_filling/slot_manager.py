@@ -282,6 +282,75 @@ class SlotManager:
             logger.warning(f"槽位不存在 - session_id: {session_id}, block_id: {block_id}, slot_name: {slot_name}")
             return False
 
+        old_value = block.slots[slot_name].value
+        
+        if block_id == "claims" and slot_name.endswith(".active"):
+            prefix = slot_name.rsplit(".", 1)[0]
+            details_slot_name = f"{prefix}.details"
+            
+            if old_value != value:
+                if details_slot_name in block.slots:
+                    if value == False:
+                        block.slots[details_slot_name] = SlotStatus(
+                            value=None,
+                            confirmed=True,
+                            source="cleared",
+                            confidence=1.0,
+                            turn_filled=session.conversation_turn
+                        )
+                        logger.info(f"清空明细槽位（已确认）- session_id: {session_id}, block_id: {block_id}, slot_name: {details_slot_name}, reason: active_false")
+                    else:
+                        block.slots[details_slot_name] = SlotStatus(
+                            value=None,
+                            confirmed=False,
+                            source="cleared",
+                            confidence=0.0,
+                            turn_filled=session.conversation_turn
+                        )
+                        logger.info(f"清空明细槽位（待填写）- session_id: {session_id}, block_id: {block_id}, slot_name: {details_slot_name}, reason: active_true")
+
+        elif block_id == "agent" and slot_name == "has_agent":
+            if old_value != value:
+                agent_slots_to_clear = ["name", "work_place", "job", "phone", "auth"]
+                for slot_to_clear in agent_slots_to_clear:
+                    if slot_to_clear in block.slots:
+                        block.slots[slot_to_clear] = SlotStatus(
+                            value=None,
+                            confirmed=False,
+                            source="cleared",
+                            confidence=0.0,
+                            turn_filled=session.conversation_turn
+                        )
+                logger.info(f"清空代理人信息槽位 - session_id: {session_id}, block_id: {block_id}, reason: has_agent_changed")
+
+        elif block_id == "service" and slot_name == "allow_electronic":
+            if old_value != value:
+                service_slots_to_clear = ["wechat", "mail"]
+                for slot_to_clear in service_slots_to_clear:
+                    if slot_to_clear in block.slots:
+                        block.slots[slot_to_clear] = SlotStatus(
+                            value=None,
+                            confirmed=False,
+                            source="cleared",
+                            confidence=0.0,
+                            turn_filled=session.conversation_turn
+                        )
+                logger.info(f"清空电子送达槽位 - session_id: {session_id}, block_id: {block_id}, reason: allow_electronic_changed")
+
+        elif block_id == "preservation" and slot_name == "active":
+            if old_value != value:
+                preservation_slots_to_clear = ["court", "document"]
+                for slot_to_clear in preservation_slots_to_clear:
+                    if slot_to_clear in block.slots:
+                        block.slots[slot_to_clear] = SlotStatus(
+                            value=None,
+                            confirmed=False,
+                            source="cleared",
+                            confidence=0.0,
+                            turn_filled=session.conversation_turn
+                        )
+                logger.info(f"清空财产保全槽位 - session_id: {session_id}, block_id: {block_id}, reason: active_changed")
+
         block.slots[slot_name] = SlotStatus(
             value=value,
             confirmed=confirmed,
@@ -336,6 +405,7 @@ class SlotManager:
                     effective_slots[f"{prefix}.{details_key}"] = details_slot
                 elif active_slot and active_slot.value == False:
                     effective_slots[f"{prefix}.{active_key}"] = active_slot
+                    effective_slots[f"{prefix}.{details_key}"] = details_slot
             for k, v in block.slots.items():
                 if k not in effective_slots and not any(k == f"{p}.{ak}" or k == f"{p}.{dk}" for p, ak, dk in claims_pairs):
                     effective_slots[k] = v
@@ -372,7 +442,7 @@ class SlotManager:
                         )
                 effective_slots = {k: v for k, v in block.slots.items() if k not in ["court", "document"]}
 
-        filled_slots = sum(1 for slot in effective_slots.values() if slot.value is not None and slot.value != "")
+        filled_slots = sum(1 for slot in effective_slots.values() if (slot.value is not None and slot.value != "") or slot.confirmed)
         total_slots = len(effective_slots)
         block.completion_rate = filled_slots / total_slots if total_slots > 0 else 0.0
 
@@ -516,7 +586,7 @@ class SlotManager:
 
         low_conf = []
         for slot_name, slot in block.slots.items():
-            if slot.value and slot.confidence < threshold:
+            if slot.value is not None and slot.value != "" and slot.confidence < threshold:
                 low_conf.append(slot_name)
 
         return low_conf
@@ -551,7 +621,7 @@ class SlotManager:
         for block in session.blocks.values():
             for slot in block.slots.values():
                 total_slots += 1
-                if slot.value and slot.value != "":
+                if (slot.value is not None and slot.value != "") or slot.confirmed:
                     filled_slots += 1
 
         return filled_slots / total_slots if total_slots > 0 else 0.0

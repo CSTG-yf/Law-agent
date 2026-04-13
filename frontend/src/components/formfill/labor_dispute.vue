@@ -64,31 +64,31 @@
           <td class="content-cell">
             <div class="checkbox-inline">
               <span class="checkbox-item" @click="handleToggle('agent', 'has_agent', true)">
-                有 [ {{ agent.has_agent ? '√' : ' ' }} ]
+                有 [ {{ agent.has_agent === true ? '√' : ' ' }} ]
               </span>
               <span class="checkbox-item" @click="handleToggle('agent', 'has_agent', false)">
-                无 [ {{ !agent.has_agent ? '√' : ' ' }} ]
+                无 [ {{ agent.has_agent === false ? '√' : ' ' }} ]
               </span>
             </div>
-            <template v-if="agent.has_agent">
+            <template v-if="agent.has_agent === true">
               <div class="info-line">
-                姓名：<editable-field :value="agent.name || '无'" field-key="name" block-id="agent" @update="handleUpdate" />
+                姓名：<editable-field :value="agent.name || '点击填写'" field-key="name" block-id="agent" @update="handleUpdate" />
               </div>
               <div class="info-line">
-                单位：<editable-field :value="agent.work_place || '无'" field-key="work_place" block-id="agent" @update="handleUpdate" />
+                单位：<editable-field :value="agent.work_place || '点击填写'" field-key="work_place" block-id="agent" @update="handleUpdate" />
               </div>
               <div class="info-line">
-                职务：<editable-field :value="agent.job || '无'" field-key="job" block-id="agent" @update="handleUpdate" />
+                职务：<editable-field :value="agent.job || '点击填写'" field-key="job" block-id="agent" @update="handleUpdate" />
               </div>
               <div class="info-line">
-                联系电话：<editable-field :value="agent.phone || '无'" field-key="phone" block-id="agent" @update="handleUpdate" />
+                联系电话：<editable-field :value="agent.phone || '点击填写'" field-key="phone" block-id="agent" @update="handleUpdate" />
               </div>
               <div class="info-line">
-                <span class="checkbox-item" @click="handleToggle('agent', 'auth', !agent.auth)">
-                  代理权限：一般授权 [ {{ !agent.auth ? '√' : ' ' }} ]
+                <span class="checkbox-item" @click="handleToggle('agent', 'auth', '一般')">
+                  代理权限：一般授权 [ {{ agent.auth === '一般' ? '√' : ' ' }} ]
                 </span>
-                <span class="checkbox-item" @click="handleToggle('agent', 'auth', !agent.auth)">
-                  特别授权 [ {{ agent.auth ? '√' : ' ' }} ]
+                <span class="checkbox-item" @click="handleToggle('agent', 'auth', '特别')">
+                  特别授权 [ {{ agent.auth === '特别' ? '√' : ' ' }} ]
                 </span>
               </div>
             </template>
@@ -113,13 +113,13 @@
           <td class="content-cell">
             <div class="info-line">
               <span class="checkbox-item" @click="handleToggle('service', 'allow_electronic', true)">
-                是 [ {{ service.allow_electronic ? '√' : ' ' }} ]
+                是 [ {{ service.allow_electronic === true ? '√' : ' ' }} ]
               </span>
                <span class="checkbox-item" @click="handleToggle('service', 'allow_electronic', false)">
-                否 [ {{ !service.allow_electronic ? '√' : ' ' }} ]
+                否 [ {{ service.allow_electronic === false ? '√' : ' ' }} ]
               </span>
             </div>
-             <template v-if="service.allow_electronic">
+             <template v-if="service.allow_electronic === true">
               <div>方式：</div>
               <div>
                  　　微信: <editable-field :value="service.wechat" field-key="wechat" block-id="service" @update="handleUpdate" class="inline-edit" />
@@ -144,7 +144,7 @@
               住所地（主要办事机构所在地）：<editable-field :value="defendant.address" field-key="address" block-id="defendant" @update="handleUpdate" />
             </div>
             <div class="info-line">
-              注册地/登记地：<editable-field :value="defendant.company_address" field-key="company_address" block-id="defendant" @update="handleUpdate" />
+              注册地/登记地：<editable-field :value="defendant.Company_address" field-key="Company_address" block-id="defendant" @update="handleUpdate" />
             </div>
             <div class="info-line">
               法定代表人/主要负责人：<editable-field :value="defendant.legal_rep" field-key="legal_rep" block-id="defendant" @update="handleUpdate" />
@@ -162,11 +162,11 @@
               类型：<editable-field :value="defendant.entity_type" field-key="entity_type" block-id="defendant" @update="handleUpdate" />
             </div>
             <div class="info-line">
-              <span class="checkbox-item" @click="handleToggle('defendant', 'is_state_owned', !defendant.is_state_owned)">
-                企业性质：国有 [ {{ defendant.is_state_owned ? '√' : ' ' }} ]
+              <span class="checkbox-item" @click="handleToggle('defendant', 'is_state_owned', true)">
+                企业性质：国有 [ {{ defendant.is_state_owned === true ? '√' : ' ' }} ]
               </span>
-              <span class="checkbox-item" @click="handleToggle('defendant', 'is_state_owned', !defendant.is_state_owned)">
-                民营 [ {{ !defendant.is_state_owned ? '√' : ' ' }} ]
+              <span class="checkbox-item" @click="handleToggle('defendant', 'is_state_owned', false)">
+                民营 [ {{ defendant.is_state_owned === false ? '√' : ' ' }} ]
               </span>
             </div>
           </td>
@@ -181,19 +181,19 @@
           <td class="content-cell">
             <template v-if="claim.isSimple">
               <div class="info-line">
-                <editable-field :value="claim.value || '无'" :field-key="key" block-id="claims" @update="handleUpdate" />
+                <editable-field :value="claim.value || '点击填写'" :field-key="key" block-id="claims" @update="handleUpdate" />
               </div>
             </template>
             <template v-else>
               <div class="info-line">
                 <span class="checkbox-item" @click="handleToggle('claims', key + '.active', true)">
-                  是 [ {{ claim.data.active ? '√' : ' ' }} ]
+                  是 [ {{ claim.data.active === true ? '√' : ' ' }} ]
                 </span>
                 <span class="checkbox-item" @click="handleToggle('claims', key + '.active', false)">
-                  否 [ {{ !claim.data.active ? '√' : ' ' }} ]
+                  否 [ {{ claim.data.active === false ? '√' : ' ' }} ]
                 </span>
               </div>
-              <div v-if="claim.data.active" class="info-line">
+              <div v-if="claim.data.active === true" class="info-line">
                 明细：<editable-field :value="claim.data.details || '无'" :field-key="key + '.details'" block-id="claims" @update="handleUpdate" />
               </div>
             </template>
@@ -205,13 +205,13 @@
           <td class="content-cell">
             <div class="info-line">
               <span class="checkbox-item" @click="handleToggle('preservation', 'active', true)">
-                是 [ {{ preservation.active ? '√' : ' ' }} ]
+                是 [ {{ preservation.active === true ? '√' : ' ' }} ]
               </span>
               <span class="checkbox-item" @click="handleToggle('preservation', 'active', false)">
-                否 [ {{ !preservation.active ? '√' : ' ' }} ]
+                否 [ {{ preservation.active === false ? '√' : ' ' }} ]
               </span>
             </div>
-            <template v-if="preservation.active">
+            <template v-if="preservation.active === true">
               <div class="info-line">
                 法院：<editable-field :value="preservation.court || '无'" field-key="court" block-id="preservation" @update="handleUpdate" />
               </div>
@@ -229,43 +229,43 @@
         <tr>
           <td class="label-cell">1. 劳动合同签订情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.contract_signing || '无'" field-key="contract_signing" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.contract_signing || '点击填写'" field-key="contract_signing" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
           <td class="label-cell">2. 劳动合同履行情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.performance_details || '无'" field-key="performance_details" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.performance_details || '点击填写'" field-key="performance_details" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
           <td class="label-cell">3.解除或终止劳动关系情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.termination_reason || '无'" field-key="termination_reason" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.termination_reason || '点击填写'" field-key="termination_reason" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
           <td class="label-cell">4.工伤情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.is_migrant_worker || '无'" field-key="is_migrant_worker" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.is_migrant_worker || '点击填写'" field-key="is_migrant_worker" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
           <td class="label-cell">5.劳动仲裁相关情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.work_injury || '无'" field-key="work_injury" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.work_injury || '点击填写'" field-key="work_injury" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
           <td class="label-cell">6.其他相关情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.arbitration_details || '无'" field-key="arbitration_details" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.arbitration_details || '点击填写'" field-key="arbitration_details" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
           <td class="label-cell">7.诉请依据</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.legal_basis || '无'" field-key="legal_basis" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.legal_basis || '点击填写'" field-key="legal_basis" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
@@ -309,7 +309,7 @@ const plaintiff = ref({
 })
 
 const agent = ref({
-  has_agent: false,
+  has_agent: undefined,
   name: '',
   work_place: '',
   job: '',
@@ -323,9 +323,9 @@ const defendant = ref({
   legal_rep: '',
   phone: '',
   social_credit_code: '',
-  company_address: '',
+  Company_address: '',
   entity_type: '',
-  is_state_owned: false,
+  is_state_owned: undefined,
   job: ''
 })
 
@@ -333,25 +333,25 @@ const service = ref({
   address: '',
   recipient: '',
   phone: '',
-  allow_electronic: false,
+  allow_electronic: undefined,
   wechat: '',
   mail: ''
 })
 
 const claims = ref({
-  salary: { active: false, details: '' },
-  double_salary: { active: false, details: '' },
-  overtime: { active: false, details: '' },
-  annual_leave: { active: false, details: '' },
-  social_loss: { active: false, details: '' },
-  termination_compensation: { active: false, details: '' },
-  illegal_termination_damages: { active: false, details: '' },
+  salary: { active: undefined, details: '' },
+  double_salary: { active: undefined, details: '' },
+  overtime: { active: undefined, details: '' },
+  annual_leave: { active: undefined, details: '' },
+  social_loss: { active: undefined, details: '' },
+  termination_compensation: { active: undefined, details: '' },
+  illegal_termination_damages: { active: undefined, details: '' },
   other_requests: '',
   litigation_cost_burden: ''
 })
 
 const preservation = ref({
-  active: false,
+  active: undefined,
   court: '',
   document: ''
 })
@@ -375,14 +375,24 @@ const claimsList = computed(() => ({
   termination_compensation: { label: '是否主张解除劳动合同经济补偿', data: claims.value.termination_compensation },
   illegal_termination_damages: { label: '是否主张违法解除劳动合同赔偿金', data: claims.value.illegal_termination_damages },
   other_requests: { label: '本表未列明的其他请求', value: claims.value.other_requests, isSimple: true },
-  litigation_cost: { label: '诉讼费用承担', value: claims.value.litigation_cost_burden, isSimple: true }
+  litigation_cost_burden: { label: '诉讼费用承担', value: claims.value.litigation_cost_burden, isSimple: true }
 }))
 
 const getSlotValue = (blockSlots, slotName) => {
   if (blockSlots && blockSlots[slotName]) {
-    return blockSlots[slotName].value || ''
+    return blockSlots[slotName].value ?? ''
   }
   return ''
+}
+
+const getActiveValue = (blockSlots, slotName) => {
+  const value = getSlotValue(blockSlots, slotName)
+  if (value === true || value === 'true') {
+    return true
+  } else if (value === false || value === 'false') {
+    return false
+  }
+  return undefined
 }
 
 const handleUpdate = (blockId, slotName, newValue) => {
@@ -485,7 +495,7 @@ watch(() => props.blocks, (newBlocks) => {
   if (newBlocks.agent) {
     const slots = newBlocks.agent.slots
     agent.value = {
-      has_agent: getSlotValue(slots, 'has_agent') === true || getSlotValue(slots, 'has_agent') === 'true',
+      has_agent: getActiveValue(slots, 'has_agent'),
       name: getSlotValue(slots, 'name'),
       work_place: getSlotValue(slots, 'work_place'),
       job: getSlotValue(slots, 'job'),
@@ -503,9 +513,9 @@ watch(() => props.blocks, (newBlocks) => {
       job: getSlotValue(slots, 'job'),
       phone: getSlotValue(slots, 'phone'),
       social_credit_code: getSlotValue(slots, 'social_credit_code'),
-      company_address: getSlotValue(slots, 'company_address'),
+      Company_address: getSlotValue(slots, 'Company_address'),
       entity_type: getSlotValue(slots, 'entity_type'),
-      is_state_owned: getSlotValue(slots, 'is_state_owned') === true || getSlotValue(slots, 'is_state_owned') === 'true'
+      is_state_owned: getActiveValue(slots, 'is_state_owned')
     }
   }
 
@@ -515,7 +525,7 @@ watch(() => props.blocks, (newBlocks) => {
       address: getSlotValue(slots, 'address'),
       recipient: getSlotValue(slots, 'recipient'),
       phone: getSlotValue(slots, 'phone'),
-      allow_electronic: getSlotValue(slots, 'allow_electronic') === true || getSlotValue(slots, 'allow_electronic') === 'true',
+      allow_electronic: getActiveValue(slots, 'allow_electronic'),
       wechat: getSlotValue(slots, 'wechat'),
       mail: getSlotValue(slots, 'mail')
     }
@@ -525,31 +535,31 @@ watch(() => props.blocks, (newBlocks) => {
     const slots = newBlocks.claims.slots
     claims.value = {
       salary: {
-        active: getSlotValue(slots, 'salary.active') === true || getSlotValue(slots, 'salary.active') === 'true',
+        active: getActiveValue(slots, 'salary.active'),
         details: getSlotValue(slots, 'salary.details')
       },
       double_salary: {
-        active: getSlotValue(slots, 'double_salary.active') === true || getSlotValue(slots, 'double_salary.active') === 'true',
+        active: getActiveValue(slots, 'double_salary.active'),
         details: getSlotValue(slots, 'double_salary.details')
       },
       overtime: {
-        active: getSlotValue(slots, 'overtime.active') === true || getSlotValue(slots, 'overtime.active') === 'true',
+        active: getActiveValue(slots, 'overtime.active'),
         details: getSlotValue(slots, 'overtime.details')
       },
       annual_leave: {
-        active: getSlotValue(slots, 'annual_leave.active') === true || getSlotValue(slots, 'annual_leave.active') === 'true',
+        active: getActiveValue(slots, 'annual_leave.active'),
         details: getSlotValue(slots, 'annual_leave.details')
       },
       social_loss: {
-        active: getSlotValue(slots, 'social_loss.active') === true || getSlotValue(slots, 'social_loss.active') === 'true',
+        active: getActiveValue(slots, 'social_loss.active'),
         details: getSlotValue(slots, 'social_loss.details')
       },
       termination_compensation: {
-        active: getSlotValue(slots, 'termination_compensation.active') === true || getSlotValue(slots, 'termination_compensation.active') === 'true',
+        active: getActiveValue(slots, 'termination_compensation.active'),
         details: getSlotValue(slots, 'termination_compensation.details')
       },
       illegal_termination_damages: {
-        active: getSlotValue(slots, 'illegal_termination_damages.active') === true || getSlotValue(slots, 'illegal_termination_damages.active') === 'true',
+        active: getActiveValue(slots, 'illegal_termination_damages.active'),
         details: getSlotValue(slots, 'illegal_termination_damages.details')
       },
       other_requests: getSlotValue(slots, 'other_requests'),
@@ -560,7 +570,7 @@ watch(() => props.blocks, (newBlocks) => {
   if (newBlocks.preservation) {
     const slots = newBlocks.preservation.slots
     preservation.value = {
-      active: getSlotValue(slots, 'active') === true || getSlotValue(slots, 'active') === 'true',
+      active: getActiveValue(slots, 'active'),
       court: getSlotValue(slots, 'court') || '',
       document: getSlotValue(slots, 'document') || ''
     }
