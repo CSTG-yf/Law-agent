@@ -3,87 +3,66 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from "element-plus"
 import { Expand, CirclePlusFilled, Fold } from '@element-plus/icons-vue'
 import { getAgentsAPI } from "../../apis/agent"
-import type { AgentResponse, ApiResponse } from "../../apis/agent"
-import histortCard from '../../components/historyCard/histortCard.vue'
-import { useHistoryChatStore } from "../../store/history_chat_msg"
+import histortCard from '../../components/historyCard/cyberJudgeHistoryCard.vue'
 import { useRouter, useRoute } from 'vue-router'
 import { MdPreview } from "md-editor-v3"
 import "md-editor-v3/lib/style.css"
-import { getSessionListAPI, getSessionAPI, deleteSessionAPI, workspaceSimpleChatStreamAPI } from '../../apis/workspace'
-import type { ChatRequest, session } from '../../type/homepage'
+import { getSessionListAPI, getSessionAPI, deleteSessionAPI, sendMessage ,uploadFile} from '../../apis/cyberJudge'
 import { useUserStore } from '../../store/user'
 
 const router = useRouter()
 const userStore = useUserStore()
 const route = useRoute()
-const historyChatStore = useHistoryChatStore()
 const searchKeyword = ref('') //用于在会话列表中查找会话
 const inputMessage = ref('') //搜索框输入的内容
-const selectedMode = ref('')//查找方式选择（智能搜索、rag）
-const selectedStrategy = ref<string>('')//rag检索模式
-const showToolSelector = ref(false) //rag选择下拉框
-const showMcpSelector = ref(false) //提供API选择下拉框
-const toolDropdownRef = ref<HTMLElement | null>(null)
-const mcpDropdownRef = ref<HTMLElement | null>(null)
 const currentSessionId = ref<string>('')  // 当前会话ID
 const chatConversationRef = ref<HTMLElement | null>(null)  // 聊天容器引用
+const fileInputRef = ref<HTMLInputElement | null>(null)  // 文件输入引用
 const isGenerating = ref(false)  // 是否正在生成回复
 const rerank = ref(false) // 是否启用重排序
 const userId = computed(() => userStore.userInfo.user_id) // 用户ID，实际使用中应从用户状态获取
 const sessions = ref<session[]>([]) // 会话列表，类型根据后端返回的数据结构定义
 const sessionsTotal = ref<number>(0) // 会话总数
 const loading = ref(false) // 是否正在加载会话列表
-const messages = ref<Array<MessageMetadata>>([]) // 消息列表，包含用户消息和AI回复，类型根据后端返回的数据结构定义
+const messages = ref<Array<message>>([]) // 消息列表，包含用户消息和AI回复，类型根据后端返回的数据结构定义
 const showSessionList = ref(true) // 是否显示会话列表
+//当前的sources列表
+const currentSources = ref<file[]>([])
+//需要上传的文件列表
+const Files = ref<File[]>([])
 
-// 四种rag 搜素策略
-const strategys = ref<any[]>([
-  { name: 'vector向量检索', image: '/src/assets/plugin.svg' },
-  { name: 'hybrid混合检索', image: '/src/assets/plugin.svg' },
-  { name: 'mmr最大边际相关性检索', image: '/src/assets/plugin.svg' },
-  { name: 'multi_query多问题改写向量检索', image: '/src/assets/plugin.svg' },
-  { name: 'graph知识图谱检索', image: '/src/assets/plugin.svg' },
-])
 
-// 定义来源元数据接口
-interface SourceMetadata {
-  file_name?: string        // 文件名，如：劳动法.pdf
-  chunk_index?: number      // 块索引
-  distance?: number         // 向量距离
-  rerank_score?: number     // 重排序分数
-  file_hash?: string        // 文件哈希
-  split_strategy?: string   // 分块策略
-  file_type?: string        // 文件类型
-  total_chunks?: number     // 总块数
-  chunk_size?: number       // 块大小
-  source?: string           // 来源类型
-  category?: string         // 分类
-  author?: string           // 作者
+interface session {
+  session_id: string
+  user_id: string
+  created_at: string
+  message_count: number
+  title: string
 }
 
-// 定义引用来源接口
-interface Source {
-  content?: string          // 文档内容摘要
-  metadata?: SourceMetadata // 元数据
+interface message {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp?: string
+  sources?: file[]
 }
 
-// 定义消息元数据接口（对应 ChatResponse）
-interface MessageMetadata {
-  message_id?: string       // 消息 ID（对应后端 message_id）
-  session_id?: string       // 会话 ID（对应后端 session_id）
-  role?: 'user' | 'assistant'  // 消息角色
-  content?: string          // 回复内容或者提问内容
-  timestamp?: string        // 回复时间戳
-  sources?: Source[]        // 引用来源（如果使用 RAG）
-  rag_used?: boolean        // 是否使用了 RAG
-  retrieval_strategy?: string  // 使用的检索策略
-  tools_used?: any          // 使用的工具列表
-  tool_results?: any        // 工具执行结果
+interface file {
+  file_id: string
+  file_name: string
+  file_type: string
+  file_path: string
+  file_size: number
+  upload_time: string
 }
 
-// 切换 rerank 开关
-const toggleRerank = () => {
-  rerank.value = !rerank.value
+interface request{
+  message:string
+  session_id?:string
+  user_id:string
+  file_paths:string[]
+  stream:boolean
+  max_history:number
 }
 
 //切换收起会话列表
@@ -94,16 +73,11 @@ const toggleSessionList = () => {
 
 // 打开创建对话框
 const openCreateSession = async () => {
-  // 重置所有相关状态到初始值
-  selectedMode.value = ''           // 默认使用 RAG 模式
-  selectedStrategy.value = ''    // 默认使用 vector 检索策略
-
   inputMessage.value = ''              // 清空输入框
-  // 关闭下拉选择器
-  showToolSelector.value = false
-  showMcpSelector.value = false
   messages.value = []
   currentSessionId.value = ''
+  currentSources.value = [] // 清空当前文件 sources
+  Files.value = [] // 清空上传文件列表
   fetchSessions()
 }
 
@@ -123,8 +97,7 @@ const fetchSessions = async () => {
         user_id: item.user_id, // 使用 session_id 作为显示名称
         created_at: item.created_at,
         message_count: item.message_count,
-        rag_enabled: item.rag_enabled,
-        session_title: item.title
+        title: item.title
       }))
 
       sessionsTotal.value = response.data.total
@@ -167,8 +140,10 @@ const deleteSession = async (session_id: string) => {
   }
 }
 
-// 选择会话
+// 选择会话列表中的会话
 const selectSession = async (session_id: string) => {
+  // 更新当前会话ID
+  currentSessionId.value = session_id
   try {
     const response = await getSessionAPI(session_id)
     if (response.data.code === 200) {
@@ -178,24 +153,27 @@ const selectSession = async (session_id: string) => {
       if (response.data.data && response.data.data.messages && Array.isArray(response.data.data.messages)) {
         // 直接使用后端返回的 messages 数组，保持完整的数据结构（包括 sources）
         messages.value = response.data.data.messages.map((msg: any) => ({
-          message_id: msg.message_id,
-          session_id: msg.session_id,
           role: msg.role as 'user' | 'assistant',
           content: msg.content || '',
           timestamp: msg.timestamp,
-          sources: msg.sources || [],
-          rag_used: msg.rag_used,
-          retrieval_strategy: msg.retrieval_strategy,
-          tools_used: msg.tools_used,
-          tool_results: msg.tool_results
+          sources: msg.sources || [], //TODO: 处理 sources 字段
         }))
 
         console.log('已加载会话历史，消息数量:', messages.value.length)
         console.log('消息详情:', messages.value)
 
+        //处理返回的sources信息 TODO: 处理 sources 字段
+        currentSources.value = response.data.data.messages.sources.map((file:any) => ({
+          file_id: file.file_id,
+          file_name: file.file_name,
+          file_type: file.file_type,
+          file_path: file.file_path,
+          file_size: file.file_size,
+          upload_time: file.upload_time,
+        }))
+
         // 重新获取会话列表
         await fetchSessions()
-        currentSessionId.value = session_id
 
         // 自动滚动到底部
         scrollToBottom()
@@ -208,53 +186,8 @@ const selectSession = async (session_id: string) => {
   }
 }
 
-// 切换 rag 选择
-const selectStrategy = (strategy: string) => {
-  // 如果已经选择了当前策略，再次点击则取消选择
-  if (selectedStrategy.value === strategy && selectedMode.value === 'rag') {
-    selectedStrategy.value = ''
-    selectedMode.value = ''
-  } else {
-    // 选择新的 RAG 策略
-    selectedStrategy.value = strategy
-    selectedMode.value = 'rag'
-  }
-  // 选择策略后关闭下拉菜单
-  showToolSelector.value = false
-}
-
-// 切换智能搜索
-const toggleWebSearch = () => {
-  // 如果当前已经是 normal 模式，再次点击则取消选择
-  if (selectedMode.value === 'normal') {
-    selectedMode.value = ''
-    selectedStrategy.value = ''
-  } else {
-    // 切换到 normal 模式
-    selectedMode.value = 'normal'
-    selectedStrategy.value = ''  // 清空 RAG 策略选择
-  }
-  console.log(selectedMode.value)
-}
-
-//切换Rag搜索
-const toggleRagSearch = () => {
-  // 如果当前已经是 rag 模式，再次点击则取消选择
-  if (selectedMode.value === 'rag') {
-    selectedMode.value = ''
-    selectedStrategy.value = ''
-  } else {
-    // 切换到 rag 模式
-    selectedMode.value = 'rag'
-    // 如果没有选择策略，默认选择第一个
-    if (!selectedStrategy.value && strategys.value.length > 0) {
-      selectedStrategy.value = strategys.value[0].name
-    }
-  }
-  console.log(selectedMode.value)
-}
-
 // 发送消息
+// TODO: 发送消息种需要加入 sources
 const handleSend = async () => {
   if (!inputMessage.value.trim()) {
     ElMessage.warning('请输入消息内容')
@@ -268,14 +201,8 @@ const handleSend = async () => {
   }
 
   const question = inputMessage.value.trim()
-
-  console.log('=== RAG 模式发送消息 ===')
-  console.log('selectedStrategy:', selectedStrategy.value)
   console.log('query:', question)
   console.log('session_id:', currentSessionId.value)
-
-
-  // 如果还没有 session_id，生成一个新的
 
   // 立即清空输入框，提升用户体验
   inputMessage.value = ''
@@ -290,22 +217,16 @@ const handleSend = async () => {
   // 自动滚动到底部
   scrollToBottom()
 
-  // 预置一条 AI 消息用于流式累加（先添加到数组，然后通过索引更新以触发响应式）
-  const aiMsgIndex = messages.value.length
-  messages.value.push({ role: 'assistant', content: '' })
   console.log('当前 messages 长度:', messages.value.length)
 
   try {
     // 根据新的接口规范构建 payload
-    const payload: ChatRequest = {
+    const payload: request = {
       message: question,
       user_id: userId.value,
-      use_rag: selectedMode.value === 'rag' ? true : false,  // 当选中 RAG 模式时启用 RAG 检索
-      retrieval_strategy: selectedStrategy.value,
-      enable_rerank: rerank.value === true ? true : false,
+      file_paths: currentSources.value.map((file:any) => file.file_path),
       max_history: 20,
-      stream: true,
-      enable_tools: selectedMode.value === 'normal' ? true : false
+      stream: false,
     }
 
     // 如果 currentSessionId 不为空，才添加 session_id 字段
@@ -313,94 +234,21 @@ const handleSend = async () => {
       payload.session_id = currentSessionId.value;
     }
 
-    console.log('准备调用 workspaceSimpleChatStreamAPI，payload:', payload)
+    console.log('准备调用 sendMessage，payload:', payload)
+    const response = await sendMessage(payload.session_id || '', payload.message, payload.user_id, payload.file_paths)
+    if (response.data.code === 200) {
+      console.log('发送消息成功', response.data.data)
+      //将返回信息添加到messages
 
-    // 用于存储完整的消息对象
-    let fullMessageData: MessageMetadata | null = null
-    let lastMessageId: string = ''  // 记录最后一条消息 ID，用于去重
+       messages.value.push({ 
+        role: 'assistant' as const, 
+        content: response.data.data.content || '', 
+        timestamp: response.data.data.timestamp || '', 
+      })
 
-    await workspaceSimpleChatStreamAPI(
-      payload,
-      (messageData: MessageMetadata) => {
-        console.log('📨 收到消息数据:', messageData)
-
-        // 🎯 阶段 1：接收 metadata 元数据
-        if (messageData.message_id || messageData.session_id) {
-          console.log('📋 设置 metadata:', messageData)
-
-          // 更新 lastMessageId
-          if (messageData.message_id) {
-            lastMessageId = messageData.message_id
-            messages.value[aiMsgIndex].message_id = messageData.message_id
-          }
-
-          // 更新 session_id
-          if (messageData.session_id) {
-            currentSessionId.value = messageData.session_id
-            messages.value[aiMsgIndex].session_id = messageData.session_id
-            console.log('🔄 更新 session_id:', messageData.session_id)
-          }
-
-          // 更新 role
-          if (messageData.role) {
-            messages.value[aiMsgIndex].role = messageData.role
-          }
-
-          return
-        }
-
-        // 🎯 阶段 2：接收流式 chunk 数据（只有 content 字段）
-        if (messageData.content && !messageData.message_id && !messageData.sources) {
-          console.log('📝 累加 chunk:', messageData.content)
-          messages.value[aiMsgIndex].content += messageData.content
-
-          // 每次收到新内容时自动滚动到底部
-          scrollToBottom()
-          return
-        }
-
-        // 🎯 阶段 3：接收完整的 sources
-        if (messageData.sources && messageData.sources.length > 0) {
-          console.log('📚 设置 sources:', messageData.sources)
-          messages.value[aiMsgIndex].sources = messageData.sources
-
-          // 更新其他元数据
-          if (messageData.rag_used !== undefined) {
-            messages.value[aiMsgIndex].rag_used = messageData.rag_used
-          }
-          if (messageData.retrieval_strategy) {
-            messages.value[aiMsgIndex].retrieval_strategy = messageData.retrieval_strategy
-          }
-          if (messageData.tools_used !== undefined) {
-            messages.value[aiMsgIndex].tools_used = messageData.tools_used
-          }
-          if (messageData.tool_results !== undefined) {
-            messages.value[aiMsgIndex].tool_results = messageData.tool_results
-          }
-          if (messageData.timestamp) {
-            messages.value[aiMsgIndex].timestamp = messageData.timestamp
-          }
-
-          // 保存完整的消息数据
-          fullMessageData = messageData
-
-          // 滚动到底部
-          scrollToBottom()
-          return
-        }
-      },
-      (err) => {
-        console.error('❌ 出错', err)
-        ElMessage.error('对话失败，请稍后重试')
-        isGenerating.value = false  // 出错时解除生成状态
-      },
-      () => {
-        console.log('✅ SSE 连接结束')
-        console.log('📦 完整消息数据:', fullMessageData)
-        isGenerating.value = false  // 完成时解除生成状态
-      }
-    )
-
+    } else {
+      ElMessage.error(`发送消息失败: ${response.data.status_message}`)
+    }
     fetchSessions()
   } catch (e) {
     console.error('RAG 模式对话异常', e)
@@ -409,6 +257,59 @@ const handleSend = async () => {
   }
 
 }
+
+//上传多个文件
+const uploadFiles = async (files: File[]) => {
+  console.log('开始上传文件:', files)
+  for (const file of files) {
+    console.log('上传文件:', file)
+    const response = await uploadFile(file)
+    if (response.data.code === 200) {
+      console.log('文件上传成功:', response.data.data)
+      // 将上传后的文件信息添加到 currentSources
+      currentSources.value.push({
+        file_id: response.data.data.file_id,
+        file_name: response.data.data.filename,
+        file_type: response.data.data.file_type,
+        file_path: response.data.data.file_path,
+        file_size: response.data.data.file_size,
+        upload_time: response.data.data.upload_time,
+      })
+      console.log('currentSources:', currentSources.value)
+    } else {
+      ElMessage.error(`文件上传失败: ${response.data.status_message}`)
+    }
+  }
+  console.log('currentSources:', currentSources.value)
+  ElMessage.success('所有文件上传成功')
+  // 上传文件完成之后，清空上传文件列表
+  Files.value = []
+} 
+
+// 文件选择变化处理，用户选择文件后， onFileChange 事件被触发，调用 uploadFiles 开始上传
+const onFileChange = (event: Event) => {
+  console.log('文件选择变化:', event)
+  const target = event.target as HTMLInputElement
+  if (target.files && target.files.length > 0) {
+    const filesArray = Array.from(target.files)
+    Files.value = filesArray
+    console.log('上传文件:', filesArray)
+    uploadFiles(filesArray)
+    // 清空input值，允许重复选择同一文件
+    target.value = ''
+  }
+}
+
+// 触发文件选择，浏览器弹出文件选择对话框
+const triggerFileInput = () => {
+  fileInputRef.value?.click()
+}
+
+// 移除已上传的文件
+const removeFile = (index: number) => {
+  currentSources.value.splice(index, 1)
+}
+
 
 // 键盘事件处理
 const handleKeydown = (event: KeyboardEvent) => {
@@ -420,23 +321,6 @@ const handleKeydown = (event: KeyboardEvent) => {
       handleSend()
     }
   }
-}
-
-// 点击空白处关闭rag/MCP下拉
-const handleClickOutside = (e: MouseEvent) => {
-  const target = e.target as Node
-  if (showToolSelector.value && toolDropdownRef.value && !toolDropdownRef.value.contains(target)) {
-    showToolSelector.value = false
-  }
-  if (showMcpSelector.value && mcpDropdownRef.value && !mcpDropdownRef.value.contains(target)) {
-    showMcpSelector.value = false
-  }
-}
-
-// 生成UUID（模拟Python的uuid4().hex）
-const generateSessionId = (): string => {
-  // 使用crypto.randomUUID()生成UUID，然后移除横杠
-  return crypto.randomUUID().replace(/-/g, '')
 }
 
 // 自动滚动到底部
@@ -466,14 +350,10 @@ onMounted(async () => {
   if (sessionId) {
     console.log('加载已有会话:', sessionId)
     currentSessionId.value = sessionId  // 设置当前会话ID
-    await selectSession(sessionId)
+    await getSessionAPI(sessionId)
   }
-
 })
 
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleClickOutside)
-})
 
 // 监听路由参数变化
 watch(
@@ -486,7 +366,7 @@ watch(
       // 清空当前消息
       messages.value = []
       // 加载新会话的历史
-      await selectSession(newSessionId as string)
+      await getSessionAPI(newSessionId as string)
     }
   }
 )
@@ -591,38 +471,6 @@ watch(
                   </div>
                   <!-- 实际内容 - 有内容时显示 -->
                   <MdPreview v-if="msg.content" :editorId="'workspace-ai-' + idx" :modelValue="msg.content" />
-
-                  <!-- 引用来源展示 - 当 sources 不为空时显示 -->
-                  <div v-if="msg.sources && msg.sources.length > 0" class="sources-section">
-                    <div class="sources-title">引用来源</div>
-                    <div v-for="(source, sIdx) in msg.sources" :key="sIdx" class="source-item">
-                      <div class="source-content">
-                        <span class="source-text">{{ source.content }}</span>
-                      </div>
-                      <div class="source-metadata">
-                        <span v-if="source.metadata?.file_name" class="meta-item">
-                          <span class="meta-label">文件：</span>
-                          <span class="meta-value">{{ source.metadata.file_name }}</span>
-                        </span>
-                        <span v-if="source.metadata?.category" class="meta-item">
-                          <span class="meta-label">分类：</span>
-                          <span class="meta-value">{{ source.metadata.category }}</span>
-                        </span>
-                        <span v-if="source.metadata?.author" class="meta-item">
-                          <span class="meta-label">作者：</span>
-                          <span class="meta-value">{{ source.metadata.author }}</span>
-                        </span>
-                        <span v-if="source.metadata?.source" class="meta-item">
-                          <span class="meta-label">来源：</span>
-                          <span class="meta-value">{{ source.metadata.source }}</span>
-                        </span>
-                        <span v-if="source.metadata?.rerank_score !== undefined" class="meta-item">
-                          <span class="meta-label">重排序分数：</span>
-                          <span class="meta-value">{{ source.metadata.rerank_score }}</span>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -644,6 +492,13 @@ watch(
 
           <!-- 输入区域（始终在底部） -->
           <div class="input-section">
+            <!-- 已上传文件展示区域 -->
+            <div v-if="currentSources.length > 0" class="uploaded-files">
+              <div v-for="(file, index) in currentSources" :key="file.file_id" class="file-tag">
+                <span class="file-name">{{ file.file_name }}</span>
+                <span class="file-remove" @click="removeFile(index)">×</span>
+              </div>
+            </div>
             <div class="input-wrapper">
               <textarea v-model="inputMessage" placeholder="给智言发消息，让智言帮你完成任务~" class="message-input" rows="4"
                 @keydown="handleKeydown"></textarea>
@@ -652,68 +507,14 @@ watch(
               <div class="input-footer">
                 <div class="footer-left">
 
-                  <!-- 智能搜索（normal 模式时高亮） -->
-                  <div class="selector-dropdown">
-                    <div :class="['selector-item', { active: selectedMode === 'normal' }]" @click="toggleWebSearch">
-                      <span class="selector-icon">🌐</span>
-                      <span class="selector-text">德理智能搜索</span>
-                    </div>
-                  </div>
-
-                  <!-- rag 搜素选择（rag 模式时高亮） -->
-                  <div class="selector-dropdown" ref="toolDropdownRef">
-                    <div :class="['selector-item', { active: selectedMode === 'rag' }]" @click="toggleRagSearch">
-                      <img src="/src/assets/plugin.svg" alt="rag" class="selector-icon-img" />
-                      <span class="selector-text">
-                        {{ selectedMode === 'rag' ? (selectedStrategy ? `已选 ${selectedStrategy}` : '选择 rag') : '选择 rag' }}
-                      </span>
-                      <span class="selector-arrow" @click.stop="showToolSelector = !showToolSelector">{{ showToolSelector ? '▲' : '▼' }}</span>
-                    </div>
-
-                    <!-- rag 下拉菜单 -->
-                    <transition name="dropdown">
-                      <div v-if="showToolSelector" class="dropdown-menu tool-menu">
-                        <!-- 标题 -->
-                        <div class="dropdown-header">
-                          <span class="header-title">选择 rag 方式</span>
-                          <span class="header-count">{{ strategys.length }} 个可用</span>
-                        </div>
-
-                        <!-- rag 列表 -->
-                        <div class="dropdown-list">
-                          <div v-if="strategys.length === 0" class="dropdown-empty">
-                            <img src="/src/assets/plugin.svg" alt="rag" class="empty-icon-img" />
-                            <span class="empty-text">暂无可用 rag 方式</span>
-                          </div>
-                          <div v-for="strategy in strategys" :key="strategy.name"
-                            :class="['dropdown-item', { selected: selectedStrategy === strategy.name }]"
-                            @click="selectStrategy(strategy.name)">
-                            <div class="item-left">
-                            
-                              <div class="item-content">
-                                <div class="item-text">{{ strategy.name }}</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </transition>
-                  </div>
-
-                  <!-- rerank 开关（绑定 rerank） -->
-                  <div :class="['rerank-btn', { active: rerank }]" @click="toggleRerank">
-                    <!-- <span class="rerank-icon">🔄</span> -->
-                    <span class="rerank-text">重排序</span>
-                  </div>
-
                 </div>
 
                 <div class="footer-right">
                   <!-- 附件按钮 -->
-                  <!-- <button class="icon-btn" title="上传附件" @click="triggerFileInput">
+                  <button class="icon-btn" title="上传附件" @click="triggerFileInput">
                     <img src="../../assets/upload.svg" alt="上传" class="upload-icon" />
                   </button>
-                  <input type="file" ref="fileInputRef" class="hidden-file-input" multiple @change="onFileChange" /> -->
+                  <input type="file" ref="fileInputRef" class="hidden-file-input" multiple @change="onFileChange" />
 
                   <!-- 发送按钮 -->
                   <button class="send-btn" :class="{ 'btn-disabled': isGenerating }" :disabled="isGenerating"
@@ -1445,6 +1246,47 @@ watch(
       padding: 10px;
       animation: fadeInUp 0.6s ease 0.2s both;
       box-sizing: border-box;
+
+      .uploaded-files {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 16px;
+        max-width: 1200px;
+        margin-left: auto;
+        margin-right: auto;
+
+        .file-tag {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 10px;
+          background-color: #e8f4ff;
+          border: 1px solid #4B8EE6;
+          border-radius: 6px;
+          font-size: 12px;
+          color: #4B8EE6;
+
+          .file-name {
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .file-remove {
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            color: #4B8EE6;
+            line-height: 1;
+
+            &:hover {
+              color: #2563eb;
+            }
+          }
+        }
+      }
 
       .input-wrapper {
         background: #ffffff;
