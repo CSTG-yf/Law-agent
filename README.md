@@ -52,6 +52,11 @@ backend/
 │       │   └── official_tools.py        # 官方工具（案例检索、法规检索）
 │       ├── prompts/          # 提示词模板集中管理
 │       │   └── conversation_prompts.py  # 多轮对话提示词模板
+│       ├── cyber_judge/      # 赛博判官服务
+│       │   ├── agent.py                 # 赛博判官Agent编排与最终回答流式输出
+│       │   ├── prompts.py               # 赛博判官提示词模板（已接入 /api/v1/prompts 查询）
+│       │   ├── fact_extractor.py        # 赛博判官事实提取与关键词生成
+│       │   └── tools.py                 # 赛博判官案例/法规检索工具封装
 │       ├── rag/             # RAG文档处理服务
 │       │   ├── hybrid_retriever.py      # 混合检索器（Vector+BM25+MMR+MultiQuery）
 │       │   ├── text_embedding.py        # RAG文档处理核心服务

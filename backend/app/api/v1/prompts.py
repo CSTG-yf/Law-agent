@@ -37,6 +37,7 @@ def _collect_all_prompts() -> list:
         CASE_GRAPH_USER_PROMPT_TEMPLATE,
         GENERAL_GRAPH_USER_PROMPT_TEMPLATE
     )
+    from app.service.cyber_judge.prompts import CyberJudgePrompts
 
     items = []
 
@@ -272,6 +273,116 @@ def _collect_all_prompts() -> list:
     ))
 
     items.append(PromptDetailItem(
+        id="cyber_judge.system_prompt",
+        label="赛博审判系统提示词",
+        content=CyberJudgePrompts.SYSTEM_PROMPT,
+        description="赛博审判模块的核心系统提示词，定义角色定位、回答规范、专业要求与禁止行为",
+        tags=["系统提示词", "赛博审判", "法律分析"],
+        category="cyber_judge",
+        is_template=False,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.intent_analysis",
+        label="赛博审判意图分析提示词模板",
+        content=CyberJudgePrompts.INTENT_ANALYSIS_PROMPT,
+        description="赛博审判模块用于识别法律咨询、案例分析、法规查询、文书分析等意图的提示词模板",
+        tags=["意图识别", "赛博审判", "模板"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.fact_extraction",
+        label="赛博审判事实提取提示词模板",
+        content=CyberJudgePrompts.FACT_EXTRACTION_PROMPT,
+        description="赛博审判模块从上传材料中提取当事人、事件、争议焦点、诉求等结构化事实的提示词模板",
+        tags=["事实提取", "赛博审判", "模板", "文件分析"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.keyword_generation",
+        label="赛博审判关键词生成提示词模板",
+        content=CyberJudgePrompts.KEYWORD_GENERATION_PROMPT,
+        description="赛博审判模块根据用户问题、事实和文档内容生成案例与法规检索关键词的提示词模板",
+        tags=["关键词生成", "赛博审判", "检索", "模板"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.case_analysis",
+        label="赛博审判案例分析提示词模板",
+        content=CyberJudgePrompts.CASE_ANALYSIS_PROMPT,
+        description="赛博审判模块基于相关案例进行裁判要点总结和法律适用分析的提示词模板",
+        tags=["案例分析", "赛博审判", "模板"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.law_analysis",
+        label="赛博审判法规分析提示词模板",
+        content=CyberJudgePrompts.LAW_ANALYSIS_PROMPT,
+        description="赛博审判模块基于法规检索结果进行条文引用与适用说明的提示词模板",
+        tags=["法规分析", "赛博审判", "模板"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.comprehensive_analysis",
+        label="赛博审判综合分析提示词模板",
+        content=CyberJudgePrompts.COMPREHENSIVE_ANALYSIS_PROMPT,
+        description="赛博审判模块综合用户问题、事实、案例与法条生成完整法律分析报告的提示词模板",
+        tags=["综合分析", "赛博审判", "模板"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.rights_protection",
+        label="赛博审判维权指导提示词模板",
+        content=CyberJudgePrompts.RIGHTS_PROTECTION_PROMPT,
+        description="赛博审判模块生成维权路径、程序、证据和策略建议的提示词模板",
+        tags=["维权指导", "赛博审判", "模板"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.compensation_calc",
+        label="赛博审判赔偿计算提示词模板",
+        content=CyberJudgePrompts.COMPENSATION_CALC_PROMPT,
+        description="赛博审判模块用于赔偿金额分析与计算说明的提示词模板",
+        tags=["赔偿计算", "赛博审判", "模板"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
+        id="cyber_judge.procedure_guidance",
+        label="赛博审判程序指导提示词模板",
+        content=CyberJudgePrompts.PROCEDURE_GUIDANCE_PROMPT,
+        description="赛博审判模块用于说明法律程序、材料、时限和注意事项的提示词模板",
+        tags=["程序指导", "赛博审判", "模板"],
+        category="cyber_judge",
+        is_template=True,
+        source_file="backend/app/service/cyber_judge/prompts.py"
+    ))
+
+    items.append(PromptDetailItem(
         id="graph.legal_system_prompt",
         label="法律文档图谱提取系统提示词",
         content=LEGAL_GRAPH_SYSTEM_PROMPT,
@@ -347,7 +458,7 @@ def _build_prompt_registry() -> dict:
 
 @router.get("/", response_model=PromptListResponse)
 async def get_prompt_list(
-    category: Optional[str] = Query(None, description="按模块分类筛选: conversation / agent / form_filling / inline"),
+    category: Optional[str] = Query(None, description="按模块分类筛选: conversation / agent / form_filling / inline / graph / cyber_judge"),
     tag: Optional[str] = Query(None, description="按标签筛选")
 ):
     try:
