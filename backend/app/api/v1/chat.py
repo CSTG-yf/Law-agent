@@ -26,6 +26,20 @@ logger = get_logger("chat_api")
 
 streaming_builder = StreamingResponseBuilder()
 session_service = get_session_service()
+CHAT_SESSION_PREFIX = "session-"
+
+
+def _is_chat_session(session_id: str) -> bool:
+    return session_id.startswith(CHAT_SESSION_PREFIX)
+
+
+def _ensure_chat_session(session_id: str) -> None:
+    if not _is_chat_session(session_id):
+        logger.warning(f"非法聊天会话访问 - session_id: {session_id}")
+        raise HTTPException(
+            status_code=HttpStatus.NOT_FOUND,
+            detail="Session not found"
+        )
 
 client = OpenAI(
     base_url=settings.OPENAI_BASE_URL,
@@ -99,8 +113,10 @@ async def send_message(request: ChatRequest):
         user_id = request.user_id
 
         if session_id is None:
-            session_id = f"session-{uuid.uuid4().hex[:12]}"
+            session_id = f"{CHAT_SESSION_PREFIX}{uuid.uuid4().hex[:12]}"
             logger.info(f"自动生成session_id - session_id: {session_id}")
+        else:
+            _ensure_chat_session(session_id)
 
         session_exists = await session_service.session_exists(session_id)
         
@@ -282,7 +298,8 @@ async def send_message(request: ChatRequest):
 @router.get("/sessions/{session_id}", response_model=dict)
 async def get_session(session_id: str):
     logger.info(f"查询会话信息 - session_id: {session_id}")
-    
+    _ensure_chat_session(session_id)
+
     session = await session_service.get_session(session_id)
     
     if not session:
@@ -313,7 +330,8 @@ async def get_session(session_id: str):
 @router.get("/sessions/{session_id}/history", response_model=dict)
 async def get_conversation_history(session_id: str, limit: Optional[int] = None):
     logger.info(f"查询会话历史 - session_id: {session_id}, limit: {limit}")
-    
+    _ensure_chat_session(session_id)
+
     session = await session_service.get_session(session_id)
     
     if not session:
@@ -345,7 +363,8 @@ async def get_conversation_history(session_id: str, limit: Optional[int] = None)
 @router.delete("/sessions/{session_id}", response_model=dict)
 async def delete_session(session_id: str):
     logger.info(f"删除会话 - session_id: {session_id}")
-    
+    _ensure_chat_session(session_id)
+
     success = await session_service.delete_session(session_id)
     
     if not success:
@@ -367,9 +386,10 @@ async def delete_session(session_id: str):
 @router.get("/sessions", response_model=dict)
 async def list_sessions(user_id: Optional[str] = None):
     logger.info(f"查询会话列表 - user_id: {user_id}")
-    
+
     sessions_data = await session_service.list_sessions(user_id=user_id)
-    
+    sessions_data = [s for s in sessions_data if _is_chat_session(s["session_id"])]
+
     sessions = []
     for session_data in sessions_data:
         sessions.append(SessionInfo(
@@ -396,7 +416,8 @@ async def list_sessions(user_id: Optional[str] = None):
 @router.post("/sessions/{session_id}/clear", response_model=dict)
 async def clear_session_history(session_id: str):
     logger.info(f"清空会话历史 - session_id: {session_id}")
-    
+    _ensure_chat_session(session_id)
+
     success = await session_service.clear_messages(session_id)
     
     if not success:

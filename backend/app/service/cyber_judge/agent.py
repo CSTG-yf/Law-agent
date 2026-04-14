@@ -1,4 +1,4 @@
-from typing import Literal, Optional, List
+from typing import Any, AsyncGenerator, Literal, Optional, List, TypedDict
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
@@ -14,6 +14,18 @@ from .tools import CyberJudgeTools
 from .prompts import CyberJudgePrompts
 
 logger = get_logger("cyber_judge_agent")
+
+
+class CyberJudgeStreamPayload(TypedDict):
+    response: dict[str, Any]
+    intent_info: Optional[IntentInfo]
+    related_cases: List[CaseInfo]
+    related_laws: List[LawInfo]
+    law_details: List[LawDetail]
+    extracted_facts: Optional[ExtractedFacts]
+    analysis_result: Optional[AnalysisResult]
+    files_processed: List[FileInfo]
+    title: Optional[str]
 
 
 class CyberJudgeAgent:
@@ -98,22 +110,27 @@ class CyberJudgeAgent:
         return "generate_keywords"
 
     async def _extract_facts_node(self, state: CyberJudgeState) -> dict:
+        existing_facts = state.get("extracted_facts")
+        if existing_facts and existing_facts.get("summary"):
+            logger.info("复用请求预处理阶段已提取的文件事实")
+            return {"extracted_facts": existing_facts}
+
         uploaded_files = state.get("uploaded_files", [])
-        
+
         if not uploaded_files:
             return {"extracted_facts": None}
-        
+
         all_facts = []
         for file_info in uploaded_files:
             if file_info.get("extracted_text"):
                 facts = await self.fact_extractor.extract_from_text(file_info["extracted_text"])
                 all_facts.append(facts)
-        
+
         if all_facts:
             merged_facts = self._merge_facts(all_facts)
             logger.info(f"事实提取完成 - summary: {merged_facts.get('summary', 'N/A')}")
             return {"extracted_facts": merged_facts}
-        
+
         return {"extracted_facts": None}
 
     async def _generate_keywords_node(self, state: CyberJudgeState) -> dict:
@@ -122,7 +139,8 @@ class CyberJudgeAgent:
         
         case_keywords, law_keywords = await self.fact_extractor.generate_search_keywords(
             user_question=query,
-            extracted_facts=state.get("extracted_facts")
+            extracted_facts=state.get("extracted_facts"),
+            uploaded_files=state.get("uploaded_files")
         )
         
         logger.info(f"关键词生成完成 - case: {case_keywords}, law: {law_keywords}")
@@ -136,7 +154,9 @@ class CyberJudgeAgent:
         intent_info = state.get("intent_info")
         tool_results = state.get("tool_results", {})
         tool_calls = state.get("tool_calls", [])
-        
+        last_message = state["messages"][-1]
+        query = last_message.content if isinstance(last_message, HumanMessage) else ""
+
         if not tool_calls:
             return {"tool_results": tool_results}
         
@@ -160,17 +180,57 @@ class CyberJudgeAgent:
         
         if tasks:
             results = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
-            
+
             for i, (task_type, _) in enumerate(tasks):
                 result = results[i]
                 if isinstance(result, Exception):
                     logger.error(f"工具调用失败 - type: {task_type}, error: {str(result)}")
                     continue
-                
+
                 if task_type == "cases":
                     related_cases = result
                 elif task_type == "laws":
                     related_laws = result
+
+            logger.info(f"首次检索完成 - case_count: {len(related_cases)}, law_count: {len(related_laws)}")
+
+            if not related_cases and not related_laws:
+                retry_case_keywords = self.fact_extractor.build_retry_keywords(
+                    query,
+                    extracted_facts=state.get("extracted_facts"),
+                    uploaded_files=state.get("uploaded_files"),
+                    for_law=False
+                )
+                retry_law_keywords = self.fact_extractor.build_retry_keywords(
+                    query,
+                    extracted_facts=state.get("extracted_facts"),
+                    uploaded_files=state.get("uploaded_files"),
+                    for_law=True
+                )
+
+                if retry_case_keywords != case_keywords or retry_law_keywords != law_keywords:
+                    logger.info(f"检索结果为空，开始降级重试 - case: {retry_case_keywords}, law: {retry_law_keywords}")
+                    retry_tasks = []
+                    if intent_info and intent_info.get("needs_case_search") and retry_case_keywords:
+                        retry_tasks.append(("cases", CyberJudgeTools.search_cases(keywords=retry_case_keywords, page_size=5)))
+                    if intent_info and intent_info.get("needs_law_search") and retry_law_keywords:
+                        retry_tasks.append(("laws", CyberJudgeTools.search_laws(keywords=retry_law_keywords, page_size=5)))
+
+                    if retry_tasks:
+                        retry_results = await asyncio.gather(*[t[1] for t in retry_tasks], return_exceptions=True)
+                        for i, (task_type, _) in enumerate(retry_tasks):
+                            retry_result = retry_results[i]
+                            if isinstance(retry_result, Exception):
+                                logger.error(f"降级检索失败 - type: {task_type}, error: {str(retry_result)}")
+                                continue
+                            if task_type == "cases" and retry_result:
+                                related_cases = retry_result
+                            elif task_type == "laws" and retry_result:
+                                related_laws = retry_result
+
+                        logger.info(f"降级检索完成 - case_count: {len(related_cases)}, law_count: {len(related_laws)}")
+                else:
+                    logger.info("检索结果为空，但没有更优降级关键词")
         
         if intent_info and intent_info.get("needs_law_detail") and related_laws:
             law_ids = [law.get("law_id") for law in related_laws[:3] if law.get("law_id")]
@@ -193,45 +253,132 @@ class CyberJudgeAgent:
         return "generate_response"
 
     async def _generate_response_node(self, state: CyberJudgeState) -> dict:
+        response_context = self._prepare_response_context(state)
+        response = await self.llm.ainvoke(response_context["messages"] + [HumanMessage(content=response_context["prompt"])])
+
+        return self._build_response_output(
+            intent_type=response_context["intent_type"],
+            content=response.content,
+            related_cases=response_context["related_cases"],
+            related_laws=response_context["related_laws"]
+        )
+
+    def _prepare_response_context(self, state: CyberJudgeState) -> dict:
         last_message = state["messages"][-1]
         query = last_message.content if isinstance(last_message, HumanMessage) else ""
-        
+
         intent_info = state.get("intent_info")
         extracted_facts = state.get("extracted_facts")
         related_cases = state.get("related_cases", [])
         related_laws = state.get("related_laws", [])
         law_details = state.get("law_details", [])
-        
+
         intent_type = intent_info.get("intent_type", "legal_consultation") if intent_info else "legal_consultation"
-        
+
         prompt = self._build_prompt(
             intent_type=intent_type,
             query=query,
             extracted_facts=extracted_facts,
             related_cases=related_cases,
             related_laws=related_laws,
-            law_details=law_details
+            law_details=law_details,
+            uploaded_files=state.get("uploaded_files", [])
         )
-        
+
         messages = [AIMessage(content=CyberJudgePrompts.SYSTEM_PROMPT)] + state["messages"]
-        
-        response = await self.llm.ainvoke(messages + [HumanMessage(content=prompt)])
-        
-        ai_message = AIMessage(content=response.content)
-        
+        return {
+            "prompt": prompt,
+            "messages": messages,
+            "intent_type": intent_type,
+            "related_cases": related_cases,
+            "related_laws": related_laws,
+            "law_details": law_details
+        }
+
+    def _build_response_output(
+        self,
+        intent_type: str,
+        content: str,
+        related_cases: List[CaseInfo],
+        related_laws: List[LawInfo]
+    ) -> dict:
+        ai_message = AIMessage(content=content)
+
         analysis_result = self._build_analysis_result(
             intent_type=intent_type,
-            content=response.content,
+            content=content,
             related_cases=related_cases,
             related_laws=related_laws
         )
-        
-        logger.info(f"响应生成完成 - intent: {intent_type}, response_length: {len(response.content)}")
-        
+
+        logger.info(f"响应生成完成 - intent: {intent_type}, response_length: {len(content)}")
+
         return {
             "messages": [ai_message],
             "analysis_result": analysis_result
         }
+
+    async def astream_final_response(
+        self,
+        state: CyberJudgeState,
+        config: dict
+    ) -> AsyncGenerator[str | CyberJudgeStreamPayload, None]:
+        preprocess_result = await self.graph.ainvoke(
+            state,
+            config=config,
+            interrupt_before=["generate_response"]
+        )
+        response_context = self._prepare_response_context(preprocess_result)
+        content_parts: List[str] = []
+
+        async for chunk in self.llm.astream(response_context["messages"] + [HumanMessage(content=response_context["prompt"])]):
+            chunk_content = self._normalize_stream_chunk(getattr(chunk, "content", ""))
+            if not chunk_content:
+                continue
+            content_parts.append(chunk_content)
+            yield chunk_content
+
+        final_content = "".join(content_parts)
+        response_output = self._build_response_output(
+            intent_type=response_context["intent_type"],
+            content=final_content,
+            related_cases=response_context["related_cases"],
+            related_laws=response_context["related_laws"]
+        )
+
+        payload: CyberJudgeStreamPayload = {
+            "response": response_output,
+            "intent_info": preprocess_result.get("intent_info"),
+            "related_cases": response_context["related_cases"],
+            "related_laws": response_context["related_laws"],
+            "law_details": response_context["law_details"],
+            "extracted_facts": preprocess_result.get("extracted_facts"),
+            "analysis_result": response_output.get("analysis_result"),
+            "files_processed": preprocess_result.get("uploaded_files", []),
+            "title": None
+        }
+
+        await self.graph.aupdate_state(config=config, values=response_output, as_node="generate_response")
+        logger.info(
+            f"最终回答流式输出完成 - session_id: {state.get('session_id')}, response_length: {len(final_content)}"
+        )
+        yield payload
+
+    @staticmethod
+    def _normalize_stream_chunk(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            normalized_parts: List[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    normalized_parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text") or item.get("content") or ""
+                    if isinstance(text, str):
+                        normalized_parts.append(text)
+            return "".join(normalized_parts)
+        return str(content) if content else ""
 
     def _build_prompt(
         self,
@@ -240,9 +387,11 @@ class CyberJudgeAgent:
         extracted_facts: Optional[ExtractedFacts],
         related_cases: List[CaseInfo],
         related_laws: List[LawInfo],
-        law_details: List[LawDetail]
+        law_details: List[LawDetail],
+        uploaded_files: Optional[List[FileInfo]] = None
     ) -> str:
         facts_text = CyberJudgePrompts.format_extracted_facts(extracted_facts)
+        file_context = CyberJudgePrompts.format_uploaded_files(uploaded_files or [])
         cases_text = CyberJudgePrompts.format_cases(related_cases)
         laws_text = CyberJudgePrompts.format_laws(related_laws)
         details_text = CyberJudgePrompts.format_law_details(law_details)
@@ -280,6 +429,7 @@ class CyberJudgeAgent:
             return CyberJudgePrompts.COMPREHENSIVE_ANALYSIS_PROMPT.format(
                 user_question=query,
                 extracted_facts=facts_text,
+                file_context=file_context,
                 related_cases=cases_text,
                 related_laws=laws_text,
                 law_details=details_text

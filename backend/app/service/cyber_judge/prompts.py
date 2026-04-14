@@ -96,7 +96,7 @@ class CyberJudgePrompts:
     "summary": "事实摘要（100字以内）"
 }}"""
 
-    KEYWORD_GENERATION_PROMPT = """根据用户问题和提取的事实，生成用于检索的关键词。
+    KEYWORD_GENERATION_PROMPT = """根据用户问题、提取的事实和上传文档内容，生成用于检索的关键词。
 
 ## 用户问题
 {user_question}
@@ -104,11 +104,16 @@ class CyberJudgePrompts:
 ## 提取的事实
 {extracted_facts}
 
+## 上传文档关键信息
+{file_context}
+
 ## 要求
-1. 生成3-5个关键词或短语
-2. 关键词应准确反映法律问题核心
-3. 包含法律专业术语
-4. 考虑同义词和相关概念
+1. 必须综合用户问题与文档内容，优先提炼具体案由、行为经过、责任认定、损害后果、争议焦点、关键证据
+2. 优先输出能够直接用于检索案例和法条的案由级关键词，例如“道路交通事故”“机动车交通事故责任纠纷”“工伤认定”“劳动合同解除”
+3. 禁止输出过于宽泛、检索价值低的词，如“法律责任”“处罚依据”“法律后果”“违法行为类型”“处罚措施”这类空泛概括词，除非同时附带具体案由或行为
+4. 生成3-5个关键词或短语
+5. 关键词应准确反映法律问题核心，并尽量贴近文书中的原始事实表述
+6. case_keywords 与 law_keywords 可以相同，但必须具体、可检索
 
 请以JSON格式返回：
 {{
@@ -163,6 +168,9 @@ class CyberJudgePrompts:
 ## 提取的事实
 {extracted_facts}
 
+## 上传文档关键信息
+{file_context}
+
 ## 相关案例
 {related_cases}
 
@@ -173,6 +181,10 @@ class CyberJudgePrompts:
 {law_details}
 
 ## 分析要求
+1. 如果用户上传了文档，必须优先围绕文档中的事实、时间、金额、主体、争议点进行分析，不能只泛泛回答用户一句话
+2. 明确指出你的判断是基于哪些文档事实、案例和法条
+3. 如果文档信息不足，再说明还缺少哪些关键事实
+
 请提供一份综合法律分析报告，包括：
 
 ### 一、问题分析
@@ -249,6 +261,20 @@ class CyberJudgePrompts:
 5. 提供相关法律依据
 
 请提供详细的程序指导。"""
+
+    @staticmethod
+    def format_uploaded_files(uploaded_files: list[dict]) -> str:
+        if not uploaded_files:
+            return "（未提供文档内容）"
+
+        parts = []
+        for index, file_info in enumerate(uploaded_files[:3], 1):
+            filename = file_info.get("filename", f"文件{index}")
+            extracted_text = (file_info.get("extracted_text") or "").strip()
+            excerpt = extracted_text[:1200] if extracted_text else "（文档未提取到文本）"
+            parts.append(f"文档{index}：{filename}\n{excerpt}")
+
+        return "\n\n".join(parts)
 
     @staticmethod
     def format_extracted_facts(facts: Optional[ExtractedFacts]) -> str:

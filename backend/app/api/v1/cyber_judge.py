@@ -1,5 +1,6 @@
 import uuid
 import os
+import json
 from datetime import datetime
 from typing import Annotated, Any, Optional
 from pathlib import Path
@@ -21,9 +22,10 @@ from app.schema.cyber_judge import (
     LawDetailResponse,
     ExtractedFactsResponse,
     AnalysisResultResponse,
-    FileInfoResponse
+    FileInfoResponse,
+    build_cyber_judge_response
 )
-from app.service.cyber_judge.agent import CyberJudgeAgent
+from app.service.cyber_judge.agent import CyberJudgeAgent, CyberJudgeStreamPayload
 from app.service.cyber_judge.state import FileInfo
 from app.service.cyber_judge.fact_extractor import FactExtractor
 from app.service.session_service import get_session_service
@@ -124,6 +126,106 @@ def _build_assistant_sources(
     sources.extend(_build_case_source(case) for case in related_cases)
     sources.extend(_build_law_source(law, law_detail_map) for law in related_laws)
     return sources
+
+
+async def _stream_cyber_judge_response(
+    request: CyberJudgeRequest,
+    session_id: str,
+    session: dict[str, Any],
+    uploaded_files: list[dict[str, Any]],
+    state_update: dict[str, Any],
+    config: dict[str, Any],
+    agent: CyberJudgeAgent
+) -> StreamingResponse:
+    logger.info(f"开始赛博判官流式响应 - session_id: {session_id}")
+    user_sources = [_build_uploaded_file_source(file_info) for file_info in uploaded_files]
+    message_id = str(uuid.uuid4())
+    existing_title = session.get("title")
+
+    async def event_generator():
+        payload: Optional[CyberJudgeStreamPayload] = None
+        final_content = ""
+
+        try:
+            yield f"event: metadata\ndata: {json.dumps({'message_id': message_id, 'session_id': session_id, 'role': 'assistant', 'title': existing_title}, ensure_ascii=False)}\n\n"
+
+            async for chunk in agent.astream_final_response(state_update, config=config):
+                if isinstance(chunk, str):
+                    final_content += chunk
+                    yield f"event: token\ndata: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+                else:
+                    payload = chunk
+
+            if payload is None:
+                raise RuntimeError("流式响应未生成最终结果")
+
+            assistant_sources = _build_assistant_sources(
+                uploaded_files=uploaded_files,
+                related_cases=payload["related_cases"],
+                related_laws=payload["related_laws"],
+                law_details=payload["law_details"]
+            )
+
+            await session_service.add_message(
+                session_id=session_id,
+                role="user",
+                content=request.message,
+                sources=user_sources
+            )
+            await session_service.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=final_content,
+                sources=assistant_sources
+            )
+
+            title = existing_title
+            if not title:
+                title = await generate_session_title(request.message, final_content)
+                await session_service.update_session(session_id, title=title)
+                logger.info(f"赛博判官流式标题生成成功 - session_id: {session_id}, title: {title}")
+                yield f"event: title\ndata: {json.dumps({'title': title}, ensure_ascii=False)}\n\n"
+
+            response = build_cyber_judge_response(
+                message_id=message_id,
+                session_id=session_id,
+                content=final_content,
+                timestamp=datetime.now().isoformat(),
+                title=title,
+                intent_info=payload["intent_info"],
+                related_cases=payload["related_cases"],
+                related_laws=payload["related_laws"],
+                law_details=payload["law_details"],
+                extracted_facts=payload["extracted_facts"],
+                analysis_result=payload["analysis_result"],
+                uploaded_files=payload["files_processed"]
+            )
+
+            yield f"event: complete\ndata: {json.dumps(response.model_dump(), ensure_ascii=False)}\n\n"
+            yield "event: done\ndata: {}\n\n"
+            logger.info(
+                f"赛博判官流式响应完成 - session_id: {session_id}, response_length: {len(final_content)}, cases: {len(payload['related_cases'])}, laws: {len(payload['related_laws'])}"
+            )
+        except Exception as e:
+            logger.error(f"赛博判官流式响应失败 - session_id: {session_id}, error: {str(e)}")
+            error_payload = {
+                'code': HttpStatus.INTERNAL_SERVER_ERROR,
+                'status': 'error',
+                'message': str(e),
+                'data': None
+            }
+            yield f"event: error\ndata: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+            yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 async def _save_uploaded_file(upload: UploadFile) -> FileUploadResponse:
@@ -276,8 +378,8 @@ async def analyze_case(request: CyberJudgeRequest):
         
         agent = get_cyber_judge_agent(max_history=request.max_history)
         
-        session_id = request.session_id
-        if session_id is None:
+        session_id = request.session_id.strip() if request.session_id else None
+        if not session_id:
             session_id = f"{CYBER_JUDGE_SESSION_PREFIX}{uuid.uuid4().hex[:12]}"
             logger.info(f"自动生成session_id - session_id: {session_id}")
         else:
@@ -312,15 +414,21 @@ async def analyze_case(request: CyberJudgeRequest):
                     file_info, facts = await fact_extractor.extract_from_file(file_path, filename)
                     uploaded_files.append(file_info)
                     
-                    if facts and facts.get("summary"):
+                    if facts:
                         if extracted_facts is None:
                             extracted_facts = facts
                         else:
-                            extracted_facts["parties"].extend(facts.get("parties", []))
-                            extracted_facts["events"].extend(facts.get("events", []))
-                            extracted_facts["disputes"].extend(facts.get("disputes", []))
-                            extracted_facts["claims"].extend(facts.get("claims", []))
-                            extracted_facts["summary"] += "；" + facts.get("summary", "")
+                            for field in ["parties", "events", "disputes", "claims", "key_dates", "amounts", "locations"]:
+                                normalized_values = [str(item).strip() for item in facts.get(field, []) if str(item).strip()]
+                                extracted_facts[field].extend(normalized_values)
+                                extracted_facts[field] = list(dict.fromkeys(extracted_facts[field]))
+
+                            summaries = [item for item in [extracted_facts.get("summary", ""), facts.get("summary", "")] if item]
+                            extracted_facts["summary"] = "；".join(dict.fromkeys(summaries))
+
+                        logger.info(
+                            f"文件事实已载入 - filename: {filename}, summary_length: {len(facts.get('summary', ''))}, text_length: {file_info.get('extracted_text_length', 0)}"
+                        )
         
         config = {"configurable": {"thread_id": session_id}}
         
@@ -343,91 +451,30 @@ async def analyze_case(request: CyberJudgeRequest):
             "max_history": request.max_history or settings.MAX_HISTORY_LENGTH
         }
         
-        logger.info(f"开始处理请求 - session_id: {session_id}, has_files: {bool(uploaded_files)}")
-        
+        logger.info(f"开始处理请求 - session_id: {session_id}, has_files: {bool(uploaded_files)}, stream: {request.stream}")
+
+        if request.stream:
+            return await _stream_cyber_judge_response(
+                request=request,
+                session_id=session_id,
+                session=session,
+                uploaded_files=uploaded_files,
+                state_update=state_update,
+                config=config,
+                agent=agent
+            )
+
         result = await agent.ainvoke(state_update, config=config)
-        
+
         assistant_message = result["messages"][-1]
         if isinstance(assistant_message, AIMessage):
             content = assistant_message.content
         else:
             content = str(assistant_message)
         
-        intent_info = result.get("intent_info")
-        intent_response = None
-        if intent_info:
-            intent_response = IntentInfoResponse(
-                intent_type=intent_info.get("intent_type", "legal_consultation"),
-                confidence=intent_info.get("confidence", 0.0),
-                sub_intents=intent_info.get("sub_intents", [])
-            )
-        
         related_cases = result.get("related_cases", [])
-        cases_response = [
-            CaseInfoResponse(
-                title=case.get("title", "未知标题"),
-                case_number=case.get("case_number"),
-                court=case.get("court"),
-                judgement_date=case.get("judgement_date"),
-                cause=case.get("cause"),
-                content_preview=case.get("content", "")[:200] if case.get("content") else None,
-                relevance_score=case.get("relevance_score", 0.0)
-            )
-            for case in related_cases
-        ]
-        
         related_laws = result.get("related_laws", [])
-        laws_response = [
-            LawInfoResponse(
-                title=law.get("title", "未知标题"),
-                publisher=law.get("publisher"),
-                publish_date=law.get("publish_date"),
-                timeliness=law.get("timeliness"),
-                law_id=law.get("law_id"),
-                content_preview=None,
-                relevance_score=law.get("relevance_score", 0.0)
-            )
-            for law in related_laws
-        ]
-        
         law_details = result.get("law_details", [])
-        details_response = [
-            LawDetailResponse(
-                title=detail.get("title", "未知标题"),
-                content=detail.get("content")
-            )
-            for detail in law_details
-        ]
-        
-        extracted_facts_result = result.get("extracted_facts")
-        facts_response = None
-        if extracted_facts_result:
-            facts_response = ExtractedFactsResponse(
-                parties=extracted_facts_result.get("parties", []),
-                events=extracted_facts_result.get("events", []),
-                disputes=extracted_facts_result.get("disputes", []),
-                claims=extracted_facts_result.get("claims", []),
-                key_dates=extracted_facts_result.get("key_dates", []),
-                summary=extracted_facts_result.get("summary")
-            )
-        
-        analysis_result = result.get("analysis_result")
-        analysis_response = None
-        if analysis_result:
-            analysis_response = AnalysisResultResponse(
-                legal_basis=analysis_result.get("legal_basis", []),
-                risk_assessment=analysis_result.get("risk_assessment"),
-                suggestions=analysis_result.get("suggestions", [])
-            )
-        
-        files_response = [
-            FileInfoResponse(
-                filename=f.get("filename", "未知"),
-                file_type=f.get("file_type", "unknown"),
-                extracted_text_length=f.get("extracted_text_length", 0)
-            )
-            for f in uploaded_files
-        ]
 
         user_sources = [_build_uploaded_file_source(file_info) for file_info in uploaded_files]
         assistant_sources = _build_assistant_sources(
@@ -449,29 +496,28 @@ async def analyze_case(request: CyberJudgeRequest):
             content=content,
             sources=assistant_sources
         )
-        
+
         title = session.get("title")
         if not title:
             title = await generate_session_title(request.message, content)
             await session_service.update_session(session_id, title=title)
-        
-        response = CyberJudgeResponse(
+
+        response = build_cyber_judge_response(
             message_id=str(uuid.uuid4()),
             session_id=session_id,
-            role="assistant",
             content=content,
             timestamp=datetime.now().isoformat(),
-            intent=intent_response,
-            related_cases=cases_response,
-            related_laws=laws_response,
-            law_details=details_response,
-            extracted_facts=facts_response,
-            analysis_result=analysis_response,
-            files_processed=files_response,
-            title=title
+            title=title,
+            intent_info=result.get("intent_info"),
+            related_cases=related_cases,
+            related_laws=related_laws,
+            law_details=law_details,
+            extracted_facts=result.get("extracted_facts"),
+            analysis_result=result.get("analysis_result"),
+            uploaded_files=uploaded_files
         )
         
-        logger.info(f"请求处理完成 - session_id: {session_id}, response_length: {len(content)}, cases: {len(cases_response)}, laws: {len(laws_response)}")
+        logger.info(f"请求处理完成 - session_id: {session_id}, response_length: {len(content)}, cases: {len(related_cases)}, laws: {len(related_laws)}")
         
         return {
             "code": HttpStatus.OK,

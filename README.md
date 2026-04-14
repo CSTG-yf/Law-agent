@@ -33,7 +33,8 @@ backend/
 │   │       ├── rag.py       # RAG文档管理接口路由
 │   │       ├── graph.py     # 知识图谱管理接口路由（上传/查询/统计）
 │   │       ├── form_filling.py # 表单填写接口路由
-│   │       └── auth.py      # 用户认证接口路由（注册/登录）
+│   │       ├── auth.py      # 用户认证接口路由（注册/登录）
+│   │       └── cyber_judge.py # 赛博判官接口路由（支持最终回答SSE流式输出）
 │   └── service/             # 业务逻辑服务层
 │       ├── agent/           # LangGraph多轮对话Agent
 │       │   ├── factory.py               # Agent工厂，管理LLM和RAG检索器实例

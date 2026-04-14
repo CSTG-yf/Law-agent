@@ -70,7 +70,7 @@ class CyberJudgeResponse(BaseModel):
     role: Literal["assistant"] = Field("assistant", description="消息角色")
     content: str = Field(..., description="回复内容")
     timestamp: str = Field(..., description="回复时间戳")
-    
+
     intent: Optional[IntentInfoResponse] = Field(None, description="意图信息")
     related_cases: List[CaseInfoResponse] = Field(default_factory=list, description="相关案例")
     related_laws: List[LawInfoResponse] = Field(default_factory=list, description="相关法律法规")
@@ -79,6 +79,108 @@ class CyberJudgeResponse(BaseModel):
     analysis_result: Optional[AnalysisResultResponse] = Field(None, description="分析结果")
     files_processed: List[FileInfoResponse] = Field(default_factory=list, description="处理的文件")
     title: Optional[str] = Field(None, description="会话标题")
+
+
+def build_cyber_judge_response(
+    *,
+    message_id: str,
+    session_id: str,
+    content: str,
+    timestamp: str,
+    title: Optional[str],
+    intent_info: Optional[dict],
+    related_cases: List[dict],
+    related_laws: List[dict],
+    law_details: List[dict],
+    extracted_facts: Optional[dict],
+    analysis_result: Optional[dict],
+    uploaded_files: List[dict]
+) -> CyberJudgeResponse:
+    intent_response = None
+    if intent_info:
+        intent_response = IntentInfoResponse(
+            intent_type=intent_info.get("intent_type", "legal_consultation"),
+            confidence=intent_info.get("confidence", 0.0),
+            sub_intents=intent_info.get("sub_intents", [])
+        )
+
+    cases_response = [
+        CaseInfoResponse(
+            title=case.get("title", "未知标题"),
+            case_number=case.get("case_number"),
+            court=case.get("court"),
+            judgement_date=case.get("judgement_date"),
+            cause=case.get("cause"),
+            content_preview=case.get("content", "")[:200] if case.get("content") else None,
+            relevance_score=case.get("relevance_score", 0.0)
+        )
+        for case in related_cases
+    ]
+
+    laws_response = [
+        LawInfoResponse(
+            title=law.get("title", "未知标题"),
+            publisher=law.get("publisher"),
+            publish_date=law.get("publish_date"),
+            timeliness=law.get("timeliness"),
+            law_id=law.get("law_id"),
+            content_preview=None,
+            relevance_score=law.get("relevance_score", 0.0)
+        )
+        for law in related_laws
+    ]
+
+    details_response = [
+        LawDetailResponse(
+            title=detail.get("title", "未知标题"),
+            content=detail.get("content")
+        )
+        for detail in law_details
+    ]
+
+    facts_response = None
+    if extracted_facts:
+        facts_response = ExtractedFactsResponse(
+            parties=extracted_facts.get("parties", []),
+            events=extracted_facts.get("events", []),
+            disputes=extracted_facts.get("disputes", []),
+            claims=extracted_facts.get("claims", []),
+            key_dates=extracted_facts.get("key_dates", []),
+            summary=extracted_facts.get("summary")
+        )
+
+    analysis_response = None
+    if analysis_result:
+        analysis_response = AnalysisResultResponse(
+            legal_basis=analysis_result.get("legal_basis", []),
+            risk_assessment=analysis_result.get("risk_assessment"),
+            suggestions=analysis_result.get("suggestions", [])
+        )
+
+    files_response = [
+        FileInfoResponse(
+            filename=f.get("filename", "未知"),
+            file_type=f.get("file_type", "unknown"),
+            extracted_text_length=f.get("extracted_text_length", 0)
+        )
+        for f in uploaded_files
+    ]
+
+    return CyberJudgeResponse(
+        message_id=message_id,
+        session_id=session_id,
+        role="assistant",
+        content=content,
+        timestamp=timestamp,
+        intent=intent_response,
+        related_cases=cases_response,
+        related_laws=laws_response,
+        law_details=details_response,
+        extracted_facts=facts_response,
+        analysis_result=analysis_response,
+        files_processed=files_response,
+        title=title
+    )
 
 
 class CyberJudgeSessionInfo(BaseModel):

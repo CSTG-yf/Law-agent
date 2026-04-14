@@ -1,7 +1,10 @@
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+import subprocess
+import shutil
 import pypdf
 import docx2txt
+from app.core.logger import get_logger
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
     MarkdownHeaderTextSplitter,
@@ -10,6 +13,8 @@ from langchain_text_splitters import (
 )
 from langchain_core.documents import Document
 import jieba
+
+logger = get_logger("file_processor")
 
 
 class AdvancedTextSplitter:
@@ -229,25 +234,29 @@ class FileProcessor:
     def extract_text(self, file_path: str) -> str:
         """
         从文件中提取文本
-        
+
         Args:
             file_path: 文件路径
-            
+
         Returns:
             提取的文本内容
         """
         file_ext = Path(file_path).suffix.lower()
-        
+        logger.info(f"开始提取文件文本 - file_path: {file_path}, file_ext: {file_ext}")
+
         if file_ext == '.pdf':
-            return self._extract_pdf(file_path)
+            text = self._extract_pdf(file_path)
         elif file_ext in ['.docx', '.doc']:
-            return self._extract_docx(file_path)
+            text = self._extract_docx(file_path)
         elif file_ext in ['.txt', '.md']:
-            return self._extract_text_file(file_path)
+            text = self._extract_text_file(file_path)
         elif file_ext in ['.xlsx', '.xls']:
-            return self._extract_excel(file_path)
+            text = self._extract_excel(file_path)
         else:
             raise ValueError(f"不支持的文件格式: {file_ext}")
+
+        logger.info(f"文件文本提取结束 - file_path: {file_path}, text_length: {len(text) if text else 0}")
+        return text
     
     def _extract_pdf(self, file_path: str) -> str:
         """提取PDF文件文本"""
@@ -265,13 +274,111 @@ class FileProcessor:
         return text
     
     def _extract_docx(self, file_path: str) -> str:
-        """提取DOCX文件文本"""
-        try:
-            text = docx2txt.process(file_path)
-            return text if text else ""
-        except Exception as e:
-            print(f"提取DOCX文本失败: {e}")
+        """提取DOC/DOCX文件文本"""
+        file_ext = Path(file_path).suffix.lower()
+
+        if file_ext == '.docx':
+            try:
+                text = docx2txt.process(file_path)
+                if text:
+                    logger.info(f"DOCX文本提取成功 - file_path: {file_path}, text_length: {len(text)}")
+                    return text
+            except Exception as e:
+                logger.warning(f"DOCX文本提取失败 - file_path: {file_path}, error: {e}")
             return ""
+
+        if file_ext == '.doc':
+            text = self._extract_doc_with_win32com(file_path)
+            if text:
+                return text
+
+            antiword_path = shutil.which('antiword')
+            if antiword_path:
+                try:
+                    antiword_args = [antiword_path]
+                    mapping_path = self._get_antiword_utf8_mapping(antiword_path)
+                    if mapping_path:
+                        antiword_args.extend(['-m', mapping_path])
+                    antiword_args.append(file_path)
+
+                    result = subprocess.run(
+                        antiword_args,
+                        capture_output=True,
+                        check=False
+                    )
+                    text = self._decode_text_bytes(result.stdout).strip()
+                    stderr_text = self._decode_text_bytes(result.stderr).strip()
+                    if result.returncode == 0 and text:
+                        logger.info(f"DOC文本提取成功(antiword) - file_path: {file_path}, text_length: {len(text)}")
+                        return text
+                    logger.warning(
+                        f"DOC文本提取失败(antiword) - file_path: {file_path}, returncode: {result.returncode}, stderr: {stderr_text[:200]}"
+                    )
+                except Exception as e:
+                    logger.warning(f"DOC文本提取异常(antiword) - file_path: {file_path}, error: {e}")
+
+            try:
+                import textract
+                text = self._decode_text_bytes(textract.process(file_path)).strip()
+                if text:
+                    logger.info(f"DOC文本提取成功(textract) - file_path: {file_path}, text_length: {len(text)}")
+                    return text
+            except Exception as e:
+                logger.warning(f"DOC文本提取失败(textract) - file_path: {file_path}, error: {e}")
+
+        return ""
+
+    def _extract_doc_with_win32com(self, file_path: str) -> str:
+        """使用 win32com 提取 .doc 文件文本 (Windows 专用)"""
+        import platform
+        if platform.system() != 'Windows':
+            return ""
+
+        try:
+            import win32com.client
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            doc = word.Documents.Open(str(Path(file_path).resolve()))
+            text = doc.Content.Text
+            doc.Close(False)
+            word.Quit()
+            if text:
+                logger.info(f"DOC文本提取成功(win32com) - file_path: {file_path}, text_length: {len(text)}")
+                return text
+        except ImportError:
+            logger.warning("win32com 未安装，无法使用 Word COM 接口提取 .doc 文件")
+        except Exception as e:
+            logger.warning(f"DOC文本提取失败(win32com) - file_path: {file_path}, error: {e}")
+
+        return ""
+
+    def _get_antiword_utf8_mapping(self, antiword_path: str) -> str | None:
+        antiword_dir = Path(antiword_path).resolve().parent
+        candidates = [
+            antiword_dir.parent / 'share' / 'antiword' / 'UTF-8.txt',
+            antiword_dir / 'UTF-8.txt',
+            Path('UTF-8.txt')
+        ]
+
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
+
+        return None
+
+    def _decode_text_bytes(self, content: bytes | str | None) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+
+        for encoding in ('utf-8', 'gb18030', 'gbk', 'cp936', 'latin1'):
+            try:
+                return content.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+
+        return content.decode('utf-8', errors='ignore')
     
     def _extract_text_file(self, file_path: str) -> str:
         """提取文本文件内容"""
