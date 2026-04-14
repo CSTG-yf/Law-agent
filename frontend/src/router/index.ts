@@ -24,6 +24,8 @@ import Profile from '../pages/profile'
 import Homepage from '../pages/homepage'
 import FormFill from '../pages/formfill'
 import MarsChat from '../pages/mars'
+import CyberJudge from '../pages/cyberjudge'
+
 import Workspace from '../pages/workspace/workspace.vue'
 import WorkspacePage from '../pages/workspace/workspacePage/workspacePage.vue'
 import WorkspaceDefaultPage from '../pages/workspace/defaultPage/defaultPage.vue'
@@ -99,6 +101,14 @@ const routes: RouteRecordRaw[] = [
         component: FormFill,
         meta: {
           current: 'formfill'
+        }
+      },
+      {
+        path: '/cyberjudge',
+        name: 'cyberjudge',
+        component: CyberJudge,
+        meta: {
+          current: 'cyberjudge'
         }
       },
       {

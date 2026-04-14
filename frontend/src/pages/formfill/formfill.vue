@@ -115,8 +115,8 @@ const selectSession = async (session_id: string) => {
         selectedTemplate.value = sessionData.template_type || ''
         currentSessionId.value = sessionData.session_id || session_id
         
-        if (sessionData.messages && Array.isArray(sessionData.messages)) {
-          messages.value = sessionData.messages.map((msg: any) => ({
+        if (sessionData.history && Array.isArray(sessionData.history)) {
+          messages.value = sessionData.history.map((msg: any) => ({
             role: msg.role as 'user' | 'assistant',
             message: msg.message || '',
             timestamp: msg.timestamp,
@@ -194,15 +194,6 @@ const fetchTemplate = async () => {
 const selectTemplate = async (template_type: string, template_name?: string) => {
   console.log('选择文书模板被调用，template_type:', template_type, 'template_name:', template_name)
   try {
-    // if (template_name) {
-    //   await ElMessageBox.confirm(`确定要使用「${template_name}」模板吗？`, '确认选择模板', {
-    //     confirmButtonText: '确定',
-    //     cancelButtonText: '取消',
-    //     type: 'info',
-    //     customClass: 'template-confirm-dialog'
-    //   })
-    // }
-
     const response = await startFormFillSessionAPI( userId.value,template_type)
     if (response.data.code === 200) {
       currentSessionId.value = response.data.data.session_id

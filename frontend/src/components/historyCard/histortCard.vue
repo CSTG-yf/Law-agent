@@ -189,12 +189,12 @@ const selectCard = () => {
 
 // 激活状态
 .history-card.active {
-  border-color: #3b82f6;
-  background-color: #eff6ff;
-  box-shadow: 0 0 0 1px #3b82f6;
+  border-color: #4B8EE6;
+  background-color: #f0f5ff;
+  box-shadow: 0 0 0 1px #4B8EE6;
 
   .card-left .content .title {
-    color: #1d4ed8;
+    color: #4B8EE6;
   }
 }
 
