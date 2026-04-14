@@ -1,12 +1,13 @@
 import uuid
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Any, Optional
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
+from openai import OpenAI
 
 from app.schema.cyber_judge import (
     CyberJudgeRequest,
@@ -33,12 +34,179 @@ from app.core.logger import get_logger
 router = APIRouter(prefix="/cyber-judge", tags=["CyberJudge"])
 logger = get_logger("cyber_judge_api")
 
+client = OpenAI(
+    base_url=settings.OPENAI_BASE_URL,
+    api_key=settings.DASHSCOPE_API_KEY or settings.OPENAI_API_KEY
+)
+
 session_service = get_session_service()
 
 UPLOAD_DIR = Path("uploads/cyber_judge")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 _cyber_judge_agents = {}
+ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.txt', '.md', '.xls', '.xlsx']
+CYBER_JUDGE_SESSION_PREFIX = "cyber-judge-"
+
+
+def _is_cyber_judge_session(session_id: str) -> bool:
+    return session_id.startswith(CYBER_JUDGE_SESSION_PREFIX)
+
+
+def _ensure_cyber_judge_session(session_id: str) -> None:
+    if not _is_cyber_judge_session(session_id):
+        logger.warning(f"非法赛博判官会话访问 - session_id: {session_id}")
+        raise HTTPException(
+            status_code=HttpStatus.NOT_FOUND,
+            detail="Session not found"
+        )
+
+
+def _build_uploaded_file_source(file_info: dict[str, Any]) -> dict[str, Any]:
+    extracted_text = file_info.get("extracted_text") or ""
+    return {
+        "content": extracted_text[:300] if extracted_text else None,
+        "metadata": {
+            "source_type": "file",
+            "filename": file_info.get("filename", "未知"),
+            "file_type": file_info.get("file_type", "unknown"),
+            "file_path": file_info.get("file_path"),
+            "extracted_text_length": file_info.get("extracted_text_length", 0)
+        }
+    }
+
+
+def _build_case_source(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "content": case.get("content", "")[:300] if case.get("content") else None,
+        "metadata": {
+            "source_type": "case",
+            "title": case.get("title", "未知标题"),
+            "case_number": case.get("case_number"),
+            "court": case.get("court"),
+            "judgement_date": case.get("judgement_date"),
+            "cause": case.get("cause"),
+            "relevance_score": case.get("relevance_score", 0.0)
+        }
+    }
+
+
+def _build_law_source(law: dict[str, Any], law_detail_map: dict[str, str]) -> dict[str, Any]:
+    detail_content = law_detail_map.get(law.get("title", ""))
+    return {
+        "content": detail_content[:500] if detail_content else None,
+        "metadata": {
+            "source_type": "law",
+            "title": law.get("title", "未知标题"),
+            "publisher": law.get("publisher"),
+            "publish_date": law.get("publish_date"),
+            "timeliness": law.get("timeliness"),
+            "law_id": law.get("law_id"),
+            "relevance_score": law.get("relevance_score", 0.0)
+        }
+    }
+
+
+def _build_assistant_sources(
+    uploaded_files: list[dict[str, Any]],
+    related_cases: list[dict[str, Any]],
+    related_laws: list[dict[str, Any]],
+    law_details: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    law_detail_map = {
+        detail.get("title", ""): detail.get("content", "")
+        for detail in law_details
+        if detail.get("title")
+    }
+
+    sources.extend(_build_uploaded_file_source(file_info) for file_info in uploaded_files)
+    sources.extend(_build_case_source(case) for case in related_cases)
+    sources.extend(_build_law_source(law, law_detail_map) for law in related_laws)
+    return sources
+
+
+async def _save_uploaded_file(upload: UploadFile) -> FileUploadResponse:
+    file_id = str(uuid.uuid4())
+    file_ext = Path(upload.filename).suffix.lower() if upload.filename else ""
+
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=HttpStatus.BAD_REQUEST,
+            detail=f"不支持的文件类型: {file_ext}。支持的类型: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+
+    safe_filename = f"{file_id}{file_ext}"
+    file_path = UPLOAD_DIR / safe_filename
+
+    content = await upload.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    file_size = len(content)
+
+    logger.info(f"文件上传成功 - file_id: {file_id}, filename: {upload.filename}, size: {file_size}")
+    return FileUploadResponse(
+        file_id=file_id,
+        filename=upload.filename,
+        file_type=file_ext[1:] if file_ext else "unknown",
+        file_path=str(file_path),
+        file_size=file_size,
+        upload_time=datetime.now().isoformat()
+    )
+
+
+async def generate_session_title(user_message: str, assistant_message: str) -> str:
+    try:
+        logger.info(f"开始生成会话标题 - user_message: {user_message[:50]}..., assistant_message: {assistant_message[:50]}...")
+        
+        response = client.chat.completions.create(
+            model=settings.MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": """你是一个专业的会话标题生成助手。请根据用户的提问和AI的回答，生成一个简洁、准确、有概括性的会话标题。
+
+标题生成要求：
+1. 长度控制在8-20个字之间
+2. 准确概括对话的核心主题和内容
+3. 使用简洁、专业的语言
+4. 突出问题的类型或领域（如：劳动纠纷、合同纠纷、交通事故等）
+5. 不包含标点符号（除了必要的问号或感叹号）
+6. 避免使用"关于"、"关于什么"等冗余词汇
+7. 优先使用法律专业术语
+
+示例：
+- 用户问"劳动合同解除需要什么条件？"，回答涉及劳动合同法第39条 → 标题："劳动合同解除条件"
+- 用户问"交通事故如何赔偿？"，回答涉及赔偿标准和计算方法 → 标题："交通事故赔偿标准"
+- 用户问"租房合同违约怎么办？"，回答涉及违约责任和维权途径 → 标题："租房合同违约处理"
+"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""请为以下对话生成一个标题：
+
+用户提问：{user_message}
+
+AI回答：{assistant_message[:200]}
+
+请直接输出标题，不要包含任何解释。"""
+                }
+            ],
+            temperature=0.5,
+            max_tokens=30
+        )
+        
+        title = response.choices[0].message.content.strip()
+        
+        if len(title) > 20:
+            title = title[:20]
+        
+        logger.info(f"会话标题生成成功 - title: {title}")
+        return title
+    except Exception as e:
+        logger.error(f"会话标题生成失败 - error: {str(e)}")
+        return user_message[:20]
 
 
 def get_cyber_judge_agent(max_history: int = None) -> CyberJudgeAgent:
@@ -55,47 +223,42 @@ def get_cyber_judge_agent(max_history: int = None) -> CyberJudgeAgent:
 
 
 @router.post("/upload", response_model=dict)
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    files: Annotated[list[UploadFile] | None, File(description="上传文件列表")] = None,
+    file: Annotated[UploadFile | None, File(description="上传单个文件")] = None
+):
     try:
-        logger.info(f"收到文件上传请求 - filename: {file.filename}")
-        
-        file_id = str(uuid.uuid4())
-        file_ext = Path(file.filename).suffix.lower() if file.filename else ""
-        
-        allowed_extensions = ['.pdf', '.doc', '.docx', '.txt', '.md', '.xls', '.xlsx']
-        if file_ext not in allowed_extensions:
+        upload_files = files or ([file] if file else [])
+        if not upload_files:
             raise HTTPException(
                 status_code=HttpStatus.BAD_REQUEST,
-                detail=f"不支持的文件类型: {file_ext}。支持的类型: {', '.join(allowed_extensions)}"
+                detail="请至少上传一个文件"
             )
-        
-        safe_filename = f"{file_id}{file_ext}"
-        file_path = UPLOAD_DIR / safe_filename
-        
-        content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
-        
-        file_size = len(content)
-        
-        response = FileUploadResponse(
-            file_id=file_id,
-            filename=file.filename,
-            file_type=file_ext[1:] if file_ext else "unknown",
-            file_path=str(file_path),
-            file_size=file_size,
-            upload_time=datetime.now().isoformat()
-        )
-        
-        logger.info(f"文件上传成功 - file_id: {file_id}, filename: {file.filename}, size: {file_size}")
-        
+
+        logger.info(f"收到文件上传请求 - total_files: {len(upload_files)}")
+        responses = [await _save_uploaded_file(upload) for upload in upload_files]
+
+        if len(responses) == 1:
+            response = responses[0].model_dump()
+            response["files"] = [response.copy()]
+            response["total"] = 1
+            return {
+                "code": HttpStatus.OK,
+                "status": "success",
+                "message": "文件上传成功",
+                "data": response
+            }
+
         return {
             "code": HttpStatus.OK,
             "status": "success",
-            "message": "文件上传成功",
-            "data": response.model_dump()
+            "message": f"成功上传{len(responses)}个文件",
+            "data": {
+                "files": [item.model_dump() for item in responses],
+                "total": len(responses)
+            }
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -115,9 +278,11 @@ async def analyze_case(request: CyberJudgeRequest):
         
         session_id = request.session_id
         if session_id is None:
-            session_id = f"cyber-judge-{uuid.uuid4().hex[:12]}"
+            session_id = f"{CYBER_JUDGE_SESSION_PREFIX}{uuid.uuid4().hex[:12]}"
             logger.info(f"自动生成session_id - session_id: {session_id}")
-        
+        else:
+            _ensure_cyber_judge_session(session_id)
+
         session_exists = await session_service.session_exists(session_id)
         if not session_exists:
             await session_service.create_session(
@@ -263,23 +428,31 @@ async def analyze_case(request: CyberJudgeRequest):
             )
             for f in uploaded_files
         ]
-        
+
+        user_sources = [_build_uploaded_file_source(file_info) for file_info in uploaded_files]
+        assistant_sources = _build_assistant_sources(
+            uploaded_files=uploaded_files,
+            related_cases=related_cases,
+            related_laws=related_laws,
+            law_details=law_details
+        )
+
         await session_service.add_message(
             session_id=session_id,
             role="user",
             content=request.message,
-            sources=[]
+            sources=user_sources
         )
         await session_service.add_message(
             session_id=session_id,
             role="assistant",
             content=content,
-            sources=[]
+            sources=assistant_sources
         )
         
         title = session.get("title")
         if not title:
-            title = request.message[:20]
+            title = await generate_session_title(request.message, content)
             await session_service.update_session(session_id, title=title)
         
         response = CyberJudgeResponse(
@@ -318,7 +491,8 @@ async def analyze_case(request: CyberJudgeRequest):
 @router.get("/sessions/{session_id}", response_model=dict)
 async def get_session(session_id: str):
     logger.info(f"查询会话信息 - session_id: {session_id}")
-    
+    _ensure_cyber_judge_session(session_id)
+
     session = await session_service.get_session(session_id)
     
     if not session:
@@ -348,7 +522,8 @@ async def get_session(session_id: str):
 @router.get("/sessions/{session_id}/history", response_model=dict)
 async def get_session_history(session_id: str, limit: Optional[int] = None):
     logger.info(f"查询会话历史 - session_id: {session_id}, limit: {limit}")
-    
+    _ensure_cyber_judge_session(session_id)
+
     session = await session_service.get_session(session_id)
     
     if not session:
@@ -380,7 +555,8 @@ async def get_session_history(session_id: str, limit: Optional[int] = None):
 @router.delete("/sessions/{session_id}", response_model=dict)
 async def delete_session(session_id: str):
     logger.info(f"删除会话 - session_id: {session_id}")
-    
+    _ensure_cyber_judge_session(session_id)
+
     success = await session_service.delete_session(session_id)
     
     if not success:
@@ -402,9 +578,10 @@ async def delete_session(session_id: str):
 @router.get("/sessions", response_model=dict)
 async def list_sessions(user_id: Optional[str] = None):
     logger.info(f"查询会话列表 - user_id: {user_id}")
-    
+
     sessions_data = await session_service.list_sessions(user_id=user_id)
-    
+    sessions_data = [s for s in sessions_data if _is_cyber_judge_session(s["session_id"])]
+
     sessions = [
         CyberJudgeSessionInfo(
             session_id=s["session_id"],
@@ -431,7 +608,8 @@ async def list_sessions(user_id: Optional[str] = None):
 @router.post("/sessions/{session_id}/clear", response_model=dict)
 async def clear_session_history(session_id: str):
     logger.info(f"清空会话历史 - session_id: {session_id}")
-    
+    _ensure_cyber_judge_session(session_id)
+
     success = await session_service.clear_messages(session_id)
     
     if not success:

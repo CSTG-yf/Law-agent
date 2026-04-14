@@ -263,7 +263,7 @@ def delete_graph_document_task(self, file_hash: str) -> Dict[str, Any]:
         from app.service.graph.graph_db import Neo4jGraphStore
         graph_store = Neo4jGraphStore()
         
-        delete_result = graph_store.delete_nodes_by_property("file_hash", file_hash)
+        delete_result = graph_store.delete_nodes_by_property("source_documents", file_hash)
         
         self.update_state(
             state='PROGRESS',

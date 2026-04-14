@@ -79,13 +79,22 @@ class Neo4jGraphStore:
             return None
         
         try:
+            source_documents = properties.pop("source_documents", None)
+
             query = f"""
             MERGE (n:{label} {{id: $properties.id}})
             SET n += $properties
+            FOREACH (_ IN CASE WHEN $source_documents IS NOT NULL THEN [1] ELSE [] END |
+                SET n.source_documents = CASE
+                    WHEN n.source_documents IS NULL THEN $source_documents
+                    ELSE reduce(acc = n.source_documents, item IN $source_documents |
+                        CASE WHEN item IN acc THEN acc ELSE acc + item END)
+                END
+            )
             RETURN elementId(n) as id
             """
-            result = self.execute_query(query, {"properties": properties})
-            
+            result = self.execute_query(query, {"properties": properties, "source_documents": source_documents})
+
             if result and len(result) > 0:
                 node_id = result[0]["id"]
                 logger.info(f"创建节点成功 - label: {label}, id: {properties.get('id', 'unknown')}")
@@ -99,11 +108,12 @@ class Neo4jGraphStore:
             return None
     
     def create_relationship(
-        self, 
-        from_id: str, 
-        to_id: str, 
-        rel_type: str, 
-        properties: Dict = None
+        self,
+        from_id: str,
+        to_id: str,
+        rel_type: str,
+        properties: Dict = None,
+        source_documents: List[str] = None
     ) -> bool:
         """
         创建关系
@@ -126,12 +136,20 @@ class Neo4jGraphStore:
             MATCH (a {{id: $from_id}}), (b {{id: $to_id}})
             MERGE (a)-[r:{rel_type}]->(b)
             SET r += $properties
+            FOREACH (_ IN CASE WHEN $source_documents IS NOT NULL THEN [1] ELSE [] END |
+                SET r.source_documents = CASE
+                    WHEN r.source_documents IS NULL THEN $source_documents
+                    ELSE reduce(acc = r.source_documents, item IN $source_documents |
+                        CASE WHEN item IN acc THEN acc ELSE acc + item END)
+                END
+            )
             RETURN r
             """
             result = self.execute_query(query, {
                 "from_id": from_id,
                 "to_id": to_id,
-                "properties": properties or {}
+                "properties": properties or {},
+                "source_documents": source_documents
             })
             
             success = len(result) > 0
@@ -198,20 +216,29 @@ class Neo4jGraphStore:
     def delete_nodes_by_property(self, property_name: str, property_value: str) -> Dict[str, Any]:
         """
         根据属性删除节点
-        
+
         Args:
             property_name: 属性名
             property_value: 属性值
-            
+
         Returns:
             删除结果
         """
-        query = f"""
-        MATCH (n {{{property_name}: $value}})
-        WITH n, count(n) as total
-        DETACH DELETE n
-        RETURN total
-        """
+        if property_name == "source_documents":
+            query = """
+            MATCH (n)
+            WHERE $value IN n.source_documents
+            WITH collect(n) as nodes, count(n) as total
+            FOREACH (node IN nodes | DETACH DELETE node)
+            RETURN total
+            """
+        else:
+            query = f"""
+            MATCH (n {{{property_name}: $value}})
+            WITH n, count(n) as total
+            DETACH DELETE n
+            RETURN total
+            """
         try:
             result = self.execute_query(query, {"value": property_value})
             deleted_count = result[0]["total"] if result else 0

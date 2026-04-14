@@ -125,13 +125,14 @@ class KnowledgeGraphBuilderV2:
                     if node_id:
                         nodes_count += 1
                         logger.debug(f"创建节点 - type: {node.type}, id: {node.id}")
-                
+
                 for relationship in graph_doc.relationships:
                     success = self.graph_store.create_relationship(
                         relationship.source.id,
                         relationship.target.id,
                         relationship.type,
-                        relationship.properties
+                        relationship.properties,
+                        source_documents=[file_hash] if file_hash else None
                     )
                     if success:
                         relationships_count += 1

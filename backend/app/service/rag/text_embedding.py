@@ -27,6 +27,9 @@ class RAGDocumentService:
         
         self.file_hashes_db = {}
         self._load_file_hashes()
+
+    def refresh_file_hashes(self):
+        self._load_file_hashes()
     
     def _load_file_hashes(self):
         """加载已存在的文件哈希"""
@@ -210,6 +213,7 @@ class RAGDocumentService:
             删除结果
         """
         try:
+            self.refresh_file_hashes()
             if file_hash not in self.file_hashes_db:
                 return {
                     "success": False,
@@ -253,6 +257,7 @@ class RAGDocumentService:
         Returns:
             文档信息
         """
+        self.refresh_file_hashes()
         return self.file_hashes_db.get(file_hash)
     
     def get_full_document_content(self, file_hash: str) -> Dict[str, Any]:
@@ -265,6 +270,7 @@ class RAGDocumentService:
         Returns:
             包含基本信息和完整内容的字典
         """
+        self.refresh_file_hashes()
         doc_info = self.file_hashes_db.get(file_hash)
         if doc_info is None:
             return None
@@ -296,6 +302,7 @@ class RAGDocumentService:
         Returns:
             所有文档信息列表
         """
+        self.refresh_file_hashes()
         return [
             {
                 "file_hash": file_hash,
@@ -313,6 +320,7 @@ class RAGDocumentService:
         Returns:
             统计信息
         """
+        self.refresh_file_hashes()
         total_documents = len(self.file_hashes_db)
         total_chunks = sum(info["chunks_count"] for info in self.file_hashes_db.values())
         

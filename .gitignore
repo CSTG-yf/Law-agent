@@ -38,3 +38,7 @@ backend/logs/
 backend/outputs/
 backend/data/users.json
 backend/graph_data
+
+AGENTS.md
+CLAUDE.md
+.claude/

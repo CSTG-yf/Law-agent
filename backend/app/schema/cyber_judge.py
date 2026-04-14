@@ -89,9 +89,16 @@ class CyberJudgeSessionInfo(BaseModel):
     title: Optional[str] = Field(None, description="会话标题")
 
 
+class CyberJudgeMessage(BaseModel):
+    role: str = Field(..., description="消息角色")
+    content: str = Field(..., description="消息内容")
+    timestamp: str = Field(..., description="时间戳")
+    sources: List[dict] = Field(default_factory=list, description="消息来源")
+
+
 class CyberJudgeSessionHistory(BaseModel):
     session_id: str = Field(..., description="会话ID")
-    messages: List[dict] = Field(default_factory=list, description="对话历史")
+    messages: List[CyberJudgeMessage] = Field(default_factory=list, description="对话历史")
     total_messages: int = Field(..., description="消息总数")
     created_at: str = Field(..., description="创建时间")
     updated_at: str = Field(..., description="更新时间")
