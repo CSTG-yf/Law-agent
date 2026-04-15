@@ -511,7 +511,7 @@ const fetchConfig = async () => {
       configForm.PRE_RETRIEVE_TOP_K = parseInt(config.PRE_RETRIEVE_TOP_K) 
       configForm.MAX_HISTORY_LENGTH = parseInt(config.MAX_HISTORY_LENGTH) 
       configForm.GRAPH_MODEL_NAME = config.GRAPH_MODEL_NAME?.trim() || ''
-      configForm.GRAPH_STRICT_MODE = config.GRAPH_STRICT_MODE === 'true'
+      configForm.GRAPH_STRICT_MODE = config.GRAPH_STRICT_MODE === 'true' || config.GRAPH_STRICT_MODE === 'True'
       configForm.GRAPH_MAX_CHUNK_SIZE = parseInt(config.GRAPH_MAX_CHUNK_SIZE) 
 
       // 保存原始配置用于对比
