@@ -30,7 +30,7 @@ class CaseSearchInput(BaseModel):
 
 class LawSearchInput(BaseModel):
     """法律法规检索输入参数"""
-    keywords: List[str] = Field(description="关键词数组，例如：['房地产', '法律规定']")
+    keywords: List[str] = Field(description="关键词数组，优先使用具体法律法规名称或明确法律主题，例如：['道路交通安全法', '道路交通安全法实施条例']、['劳动合同法', '劳动法']，避免只传'处罚'、'责任'这类过泛词")
     field_name: str = Field(default="semantic", description="检索字段：semantic(语义检索)")
     time_liness_type_arr: Optional[List[str]] = Field(default=None, description="时效性数组，5:有效")
     publish_year_start: Optional[str] = Field(default=None, description="发布日期开始，格式：YYYY-MM-DD")
@@ -284,8 +284,11 @@ async def search_laws(
     sort_order: str = "desc"
 ) -> str:
     """检索相关法律法规。
-    
+
     用于搜索法律条文、行政法规、地方性法规等，支持关键词检索、时效性筛选、时间范围筛选等。
+    关键词必须优先使用具体法律法规名称、司法解释名称或明确法律主题，例如“道路交通安全法”“道路交通安全法实施条例”“行政处罚法”“劳动合同法”。
+    不要只使用“处罚”“责任”“违法”“规定”这类过泛词，除非同时带有具体法律名称或明确场景。
+
     
     ⚠️ 重要提示：此工具只返回法律法规的标题、发布机关、ID等基本信息，不返回法律条文的具体内容。
     如需获取法律条文的详细内容，请使用 laws_detail 工具，并传入从本工具返回的法律ID。

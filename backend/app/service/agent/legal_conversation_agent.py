@@ -1,5 +1,6 @@
 from typing import Literal, Optional
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+import re
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
@@ -25,6 +26,22 @@ logger = get_logger("legal_agent")
 
 
 class LegalConversationAgent:
+    LAW_KEYWORD_MAPPING = [
+        (r"道路交通事故|交通事故|闯红灯|非机动车|机动车|逆行|酒驾|醉驾|无证驾驶|电瓶车|电动车|摩托车|违规带人|超员|载人", ["道路交通安全法"]),
+        (r"劳动合同|辞退|辞退赔偿|解除劳动合同|加班|工资|社保|工伤", ["劳动合同法", "劳动法", "工伤保险条例"]),
+        (r"借款|欠款|民间借贷|利息|逾期还款", ["民法典", "最高人民法院关于审理民间借贷案件适用法律若干问题的规定"]),
+        (r"租赁|房屋租赁|退租|押金|租金", ["民法典", "商品房屋租赁管理办法"]),
+        (r"婚姻|离婚|抚养权|抚养费|夫妻共同财产", ["民法典", "妇女权益保障法"]),
+        (r"消费者|退款|退一赔三|假一赔三|产品质量", ["消费者权益保护法", "产品质量法"]),
+        (r"侵权|人身损害|受伤|医疗费|误工费|残疾赔偿金", ["民法典", "最高人民法院关于审理人身损害赔偿案件适用法律若干问题的解释"]),
+        (r"诈骗|盗窃|故意伤害|刑事责任", ["刑法", "刑事诉讼法"]),
+        (r"公司|股东|工商|清算|法定代表人", ["公司法"]),
+        (r"行政处罚|行政复议|行政诉讼|罚款|吊销", ["行政处罚法", "行政复议法", "行政诉讼法"])
+    ]
+    LAW_GENERIC_TERMS = {
+        "处罚", "责任", "违法", "违规", "后果", "处理", "规定", "依据", "措施", "流程", "标准", "法律", "法律法规", "法律责任"
+    }
+
     def __init__(
         self,
         llm: ChatOpenAI,
@@ -187,6 +204,50 @@ class LegalConversationAgent:
                 }
             }
 
+    def _normalize_law_keywords(self, query: str, keywords: list[str] | None) -> list[str]:
+        def is_law_name(text: str) -> bool:
+            return bool(re.search(r"(法|条例|规定|办法|解释|规则|细则|通则|章程)$", text)) or text in {
+                "民法典", "刑法", "劳动法", "公司法", "行政处罚法", "行政复议法", "行政诉讼法", "消费者权益保护法"
+            }
+
+        named_laws = []
+        seen_named = set()
+        for keyword in keywords or []:
+            text = (keyword or "").strip()
+            if not text or text in self.LAW_GENERIC_TERMS:
+                continue
+            if len(text) <= 1:
+                continue
+            if is_law_name(text) and text not in seen_named:
+                seen_named.add(text)
+                named_laws.append(text)
+
+        mapped_laws = []
+        seen_mapped = set(named_laws)
+        query_text = query or ""
+        candidate_text = f"{query_text} {' '.join(keywords or [])}"
+        for pattern, law_names in self.LAW_KEYWORD_MAPPING:
+            if re.search(pattern, candidate_text):
+                for law_name in law_names:
+                    if law_name not in seen_mapped:
+                        seen_mapped.add(law_name)
+                        mapped_laws.append(law_name)
+
+        normalized = (mapped_laws + named_laws)[:5]
+        if normalized:
+            logger.info(f"法规关键词规范化完成 - original: {keywords}, normalized: {normalized}")
+            return normalized
+
+        fallback = ["民法典"]
+        logger.info(f"法规关键词规范化回退 - original: {keywords}, fallback: {fallback}")
+        return fallback
+
+    def _get_latest_user_query(self, messages: list[BaseMessage]) -> str:
+        for message in reversed(messages):
+            if isinstance(message, HumanMessage):
+                return message.content
+        return ""
+
     async def _call_tools_node(self, state: ConversationState) -> ConversationState:
         last_message = state["messages"][-1]
         query = last_message.content if isinstance(last_message, HumanMessage) else ""
@@ -214,7 +275,10 @@ class LegalConversationAgent:
                         validated_args = CaseSearchInput(**tool_args)
                         result = await _search_cases_impl(**validated_args.dict())
                     elif tool_name == "search_laws":
-                        validated_args = LawSearchInput(**tool_args)
+                        normalized_tool_args = dict(tool_args)
+                        normalized_tool_args["keywords"] = self._normalize_law_keywords(query, normalized_tool_args.get("keywords"))
+                        logger.info(f"调用工具: {tool_name}, 规范化后参数: {normalized_tool_args}")
+                        validated_args = LawSearchInput(**normalized_tool_args)
                         result = await _search_laws_impl(**validated_args.dict())
                     else:
                         result = f"未知工具: {tool_name}"
@@ -243,8 +307,7 @@ class LegalConversationAgent:
             return {**state, "tool_calls": [], "tool_results": {}}
 
     async def _generate_node(self, state: ConversationState) -> ConversationState:
-        last_message = state["messages"][-1]
-        query = last_message.content if isinstance(last_message, HumanMessage) else ""
+        query = self._get_latest_user_query(state["messages"])
 
         tool_results = state.get("tool_results", {})
         has_tool_results = bool(tool_results)
@@ -256,17 +319,33 @@ class LegalConversationAgent:
             messages = [AIMessage(content=system_prompt)] + state["messages"][:-1] + [HumanMessage(content=user_prompt)]
             llm_to_use = self.llm
         elif has_tool_results:
+            tool_context_parts = []
+            for tool_name, tool_result in tool_results.items():
+                tool_context_parts.append(f"[{tool_name}]\n{tool_result}")
+            tool_context = "\n\n".join(tool_context_parts)
+
             system_prompt = """你是一个专业的法律AI助手。
 
-你刚刚调用了官方检索工具获取了相关信息。请基于工具返回的结果为用户提供准确、有用的回答。
+你已经拿到了法规检索、案例检索等工具结果。现在你的任务是：基于这些结果，直接生成一版最终答复，而不是把工具原始结果分段复述一遍。
 
-重要约束：
-- 必须基于工具返回的结果回答问题
-- 如果工具返回的结果为空或不相关，请明确说明
-- 可以适当引用工具返回的案例或法规信息
-- 保持回答的专业性和准确性"""
-            messages = [AIMessage(content=system_prompt)] + state["messages"]
-            llm_to_use = self.llm_with_tools
+回答要求：
+- 先直接回答用户问题，给出结论
+- 再把最相关的法律依据和案例启示自然融合进答案
+- 不要先输出一段案例结果，再输出一段法规结果
+- 不要机械复述工具返回的长列表
+- 只保留与用户问题直接相关的信息
+- 可以引用1到2个最相关案例的法院、案号、裁判日期
+- 如果工具结果不足以支持确定结论，要明确说明局限
+- 严禁编造工具结果中不存在的法律条文、案例或处罚结论
+- 语言要像最终答复，简洁、自然、专业"""
+            user_prompt = f"""用户问题：{query}
+
+工具检索结果：
+{tool_context}
+
+请基于以上检索结果，直接输出整合后的最终答复。"""
+            messages = [AIMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+            llm_to_use = self.llm
         else:
             if state.get("use_rag", False):
                 system_prompt = """你是一个专业的法律AI助手。

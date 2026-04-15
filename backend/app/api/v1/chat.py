@@ -157,25 +157,28 @@ async def send_message(request: ChatRequest):
             async def title_generator_wrapper(user_msg: str, assistant_msg: str) -> str:
                 generated_title = await generate_session_title(user_msg, assistant_msg)
                 await session_service.update_session(session_id, title=generated_title)
+                logger.info(f"更新会话标题 - session_id: {session_id}, title: {generated_title}")
+                return generated_title
+
+            async def completion_handler(user_message: str, assistant_message: str, collected_sources: list, retrieval_metadata: dict | None, title: str | None):
                 await session_service.add_message(
                     session_id=session_id,
                     role="user",
-                    content=user_msg,
+                    content=user_message,
                     sources=[]
                 )
                 await session_service.add_message(
                     session_id=session_id,
                     role="assistant",
-                    content=assistant_msg,
-                    sources=[]
+                    content=assistant_message,
+                    sources=collected_sources or []
                 )
-                logger.info(f"更新会话标题和消息 - session_id: {session_id}, title: {generated_title}")
-                return generated_title
-            
+                logger.info(f"流式消息已保存 - session_id: {session_id}, title: {title}, sources_count: {len(collected_sources or [])}")
+
             title_generator = None
             if title is None:
                 title_generator = title_generator_wrapper
-            
+
             return await streaming_builder.build_conversation_stream(
                 agent.get_compiled_graph(),
                 state_update,
@@ -188,6 +191,7 @@ async def send_message(request: ChatRequest):
                 title=title,
                 user_message=request.message,
                 title_generator=title_generator,
+                completion_handler=completion_handler,
                 agent=agent
             )
         else:
@@ -236,21 +240,18 @@ async def send_message(request: ChatRequest):
                 if retrieval_metadata.get("retrieval_skipped"):
                     logger.info(f"检索被跳过 - reason: {retrieval_metadata.get('skip_reason')}")
 
-            for msg in result["messages"]:
-                if isinstance(msg, HumanMessage):
-                    await session_service.add_message(
-                        session_id=session_id,
-                        role="user",
-                        content=msg.content,
-                        sources=[]
-                    )
-                elif isinstance(msg, AIMessage):
-                    await session_service.add_message(
-                        session_id=session_id,
-                        role="assistant",
-                        content=msg.content,
-                        sources=sources if sources else []
-                    )
+            await session_service.add_message(
+                session_id=session_id,
+                role="user",
+                content=request.message,
+                sources=[]
+            )
+            await session_service.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=content,
+                sources=sources if sources else []
+            )
 
             if not session.get("title"):
                 generated_title = await generate_session_title(request.message, content)

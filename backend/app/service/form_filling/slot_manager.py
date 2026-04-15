@@ -670,18 +670,27 @@ class SlotManager:
         key = f"{HISTORY_KEY_PREFIX}{session_id}"
         entry = json.dumps({"role": role, "message": message, "timestamp": self._get_current_timestamp()}, ensure_ascii=False)
         redis_client.rpush(key, entry)
-        logger.info(f"保存对话历史 - session_id: {session_id}, role: {role}")
+        history_count = redis_client.llen(key)
+        logger.info(f"保存对话历史 - session_id: {session_id}, role: {role}, redis_history_count: {history_count}")
 
-    def get_conversation_history(self, session_id: str, limit: int = 50) -> List[Dict]:
+    def get_conversation_history(self, session_id: str, limit: Optional[int] = None) -> List[Dict]:
         redis_client = self._get_redis()
         key = f"{HISTORY_KEY_PREFIX}{session_id}"
-        raw_entries = redis_client.lrange(key, -limit, -1)
+        history_count = redis_client.llen(key)
+        if limit and limit > 0:
+            raw_entries = redis_client.lrange(key, -limit, -1)
+        else:
+            raw_entries = redis_client.lrange(key, 0, -1)
         history = []
         for entry in raw_entries:
             try:
                 history.append(json.loads(entry))
             except Exception:
                 continue
+        logger.info(
+            f"获取对话历史成功 - session_id: {session_id}, limit: {limit}, "
+            f"redis_history_count: {history_count}, returned_count: {len(history)}"
+        )
         return history
 
     def get_session_list(self) -> List[Dict]:

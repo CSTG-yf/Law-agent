@@ -393,11 +393,11 @@ async def send_message(request: SendMessageRequest):
                     for block_def in template_def.blocks:
                         block = state.blocks.get(block_def.block_id)
                         if block:
-                            for slot_def in block_def.slots:
-                                if slot_def.required:
-                                    slot = block.slots.get(slot_def.name)
-                                    if not slot or slot.value is None:
-                                        missing_fields.append(f"{block_def.block_id}.{slot_def.name}")
+                            for slot_name in block_def.required_slots:
+                                slot_key = slot_name.split(".", 1)[1] if "." in slot_name else slot_name
+                                slot = block.slots.get(slot_key)
+                                if not slot or slot.value is None:
+                                    missing_fields.append(f"{block_def.block_id}.{slot_name}")
                 
                 if missing_fields:
                     message = f"法律条文已生成完成。还有一些信息需要补充：{', '.join(missing_fields[:3])}{'...' if len(missing_fields) > 3 else ''}。您可以继续补充，或者回复\"生成文档\"直接生成。"

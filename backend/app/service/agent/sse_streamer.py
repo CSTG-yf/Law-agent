@@ -36,6 +36,7 @@ class SSEStreamer:
         title: Optional[str] = None,
         user_message: Optional[str] = None,
         title_generator: Optional[callable] = None,
+        completion_handler: Optional[callable] = None,
         agent: Optional[Any] = None
     ) -> AsyncGenerator[str, None]:
         if message_id:
@@ -52,6 +53,7 @@ class SSEStreamer:
             )
 
         assistant_content = ""
+        final_ai_content = ""
         in_generate_phase = False
         collected_sources = []
         collected_metadata = None
@@ -89,10 +91,11 @@ class SSEStreamer:
                     if messages:
                         last_message = messages[-1]
                         if isinstance(last_message, AIMessage):
+                            final_ai_content = last_message.content or ""
                             yield SSEStreamer._format_sse(
                                 type="complete",
                                 data={
-                                    "content": last_message.content,
+                                    "content": final_ai_content,
                                     "message_id": getattr(last_message, "id", "")
                                 }
                             )
@@ -145,15 +148,27 @@ class SSEStreamer:
                 }
             )
 
-        if title_generator and user_message and assistant_content and title is None:
+        generated_title = title
+        completed_content = assistant_content or final_ai_content
+
+        if title_generator and user_message and completed_content and title is None:
             try:
-                generated_title = await title_generator(user_message, assistant_content)
+                generated_title = await title_generator(user_message, completed_content)
                 yield SSEStreamer._format_sse(
                     type="title",
                     data={"title": generated_title}
                 )
-            except Exception as e:
-                pass
+            except Exception:
+                generated_title = title
+
+        if completion_handler and user_message and completed_content:
+            await completion_handler(
+                user_message=user_message,
+                assistant_message=completed_content,
+                collected_sources=collected_sources,
+                retrieval_metadata=collected_metadata,
+                title=generated_title
+            )
 
         yield SSEStreamer._format_sse(
             type="done",
@@ -212,6 +227,7 @@ class StreamingResponseBuilder:
         title: Optional[str] = None,
         user_message: Optional[str] = None,
         title_generator: Optional[callable] = None,
+        completion_handler: Optional[callable] = None,
         agent: Optional[Any] = None
     ) -> StreamingResponse:
         generator = self.streamer.stream_agent_response(
@@ -226,6 +242,7 @@ class StreamingResponseBuilder:
             title,
             user_message,
             title_generator,
+            completion_handler,
             agent
         )
         return SSEStreamer.create_streaming_response(generator)

@@ -328,7 +328,7 @@ class Neo4jGraphStore:
                 params["node_types"] = node_types
 
             if search_term:
-                node_filter_parts.append("n.name CONTAINS $search_term")
+                node_filter_parts.append("(n.id CONTAINS $search_term OR n.name CONTAINS $search_term)")
                 params["search_term"] = search_term
 
             if file_hash:
@@ -374,18 +374,27 @@ class Neo4jGraphStore:
                 depth_query += f"""
                 CALL {{
                     WITH n
-                    MATCH (n)-[r*1..{depth}]-(related)
+                    MATCH path = (n)-[*1..{depth}]-(related)
                 """
 
                 if file_hash:
                     depth_query += f"\nWHERE $file_hash IN related.source_documents"
 
                 depth_query += f"""
-                    RETURN related, r
+                    UNWIND relationships(path) AS rel
+                    RETURN related,
+                           collect(DISTINCT {{
+                               id: elementId(rel),
+                               type: type(rel),
+                               startNode: coalesce(startNode(rel).id, startNode(rel).name, ""),
+                               endNode: coalesce(endNode(rel).id, endNode(rel).name, ""),
+                               properties: properties(rel)
+                           }}) AS rels
                     LIMIT $limit
                 }}
-                RETURN DISTINCT related, r
+                RETURN DISTINCT related, rels
                 """
+
 
                 if file_hash:
                     depth_params["file_hash"] = file_hash
@@ -395,7 +404,7 @@ class Neo4jGraphStore:
                 for record in depth_results:
                     related_node = record.get("related", {})
                     related_id = related_node.get("id") or related_node.get("name", "")
-                    
+
                     if related_id and related_id not in node_ids:
                         node_ids.add(related_id)
                         nodes.append({
@@ -403,25 +412,19 @@ class Neo4jGraphStore:
                             "labels": related_node.get("labels", []),
                             "properties": {k: v for k, v in related_node.items() if k not in ["id", "labels"]}
                         })
-                    
-                    rel_list = record.get("r", [])
+
+                    rel_list = record.get("rels", [])
                     if isinstance(rel_list, list):
                         for rel in rel_list:
-                            if isinstance(rel, tuple):
-                                rel_id = str(rel[0]) if len(rel) > 0 else ""
-                                rel_type = rel[1] if len(rel) > 1 else ""
-                                start_node = str(rel[2]) if len(rel) > 2 else ""
-                                end_node = str(rel[3]) if len(rel) > 3 else ""
-                                rel_props = rel[4] if len(rel) > 4 and isinstance(rel[4], dict) else {}
-                            elif isinstance(rel, dict):
-                                rel_id = rel.get("id", "")
-                                rel_type = rel.get("type", "")
-                                start_node = rel.get("startNode", "")
-                                end_node = rel.get("endNode", "")
-                                rel_props = rel.get("properties", {})
-                            else:
+                            if not isinstance(rel, dict):
                                 continue
-                            
+
+                            rel_id = rel.get("id", "")
+                            rel_type = rel.get("type", "")
+                            start_node = rel.get("startNode", "")
+                            end_node = rel.get("endNode", "")
+                            rel_props = rel.get("properties", {})
+
                             if rel_id and rel_id not in rel_ids:
                                 if relation_types and rel_type not in relation_types:
                                     continue
@@ -433,42 +436,34 @@ class Neo4jGraphStore:
                                     "endNode": end_node,
                                     "properties": rel_props
                                 })
-            
-            if node_ids:
+
                 rel_query = f"""
                 MATCH (a)-[r]->(b)
                 WHERE (a.id IN $node_ids OR a.name IN $node_ids)
                   AND (b.id IN $node_ids OR b.name IN $node_ids)
-                RETURN a, b, r
+                RETURN elementId(r) as rel_id,
+                       type(r) as rel_type,
+                       coalesce(a.id, a.name, "") as start_node,
+                       coalesce(b.id, b.name, "") as end_node,
+                       properties(r) as rel_props
                 LIMIT $limit
                 """
-                
+
                 rel_results = self.execute_query(rel_query, {
                     "node_ids": list(node_ids),
                     "limit": node_limit * 3
                 })
-                
+
                 for record in rel_results:
-                    rel_data = record.get("r", {})
-                    
-                    if isinstance(rel_data, tuple):
-                        rel_id = str(rel_data[0]) if len(rel_data) > 0 else ""
-                        rel_type = rel_data[1] if len(rel_data) > 1 else ""
-                        start_node = str(rel_data[2]) if len(rel_data) > 2 else ""
-                        end_node = str(rel_data[3]) if len(rel_data) > 3 else ""
-                        rel_props = rel_data[4] if len(rel_data) > 4 and isinstance(rel_data[4], dict) else {}
-                    elif isinstance(rel_data, dict):
-                        rel_id = rel_data.get("id", "")
-                        rel_type = rel_data.get("type", "")
-                        start_node = rel_data.get("startNode", "")
-                        end_node = rel_data.get("endNode", "")
-                        rel_props = rel_data.get("properties", {})
-                    else:
-                        continue
-                    
+                    rel_id = record.get("rel_id", "")
+                    rel_type = record.get("rel_type", "")
+                    start_node = record.get("start_node", "")
+                    end_node = record.get("end_node", "")
+                    rel_props = record.get("rel_props", {})
+
                     if relation_types and rel_type not in relation_types:
                         continue
-                    
+
                     if rel_id and rel_id not in rel_ids:
                         rel_ids.add(rel_id)
                         relationships.append({
@@ -478,6 +473,7 @@ class Neo4jGraphStore:
                             "endNode": end_node,
                             "properties": rel_props
                         })
+            
             
             logger.info(
                 f"获取可视化数据成功 - "

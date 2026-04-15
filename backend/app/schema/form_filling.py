@@ -6,7 +6,7 @@ from datetime import datetime
 class SlotStatus(BaseModel):
     value: Any = None
     confirmed: bool = False
-    source: Literal["user_input", "inferred", "ocr", "default"] = "user_input"
+    source: Literal["user_input", "inferred", "ocr", "default", "cleared"] = "user_input"
     confidence: float = 1.0
     turn_filled: int = 0
 
@@ -153,4 +153,4 @@ class HistoryEntry(BaseModel):
 
 class GetHistoryRequest(BaseModel):
     session_id: str
-    limit: int = 50
+    limit: Optional[int] = None

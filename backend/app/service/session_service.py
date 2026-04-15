@@ -184,8 +184,13 @@ class SessionService:
         # 更新会话的消息计数和更新时间
         await self.redis.hincrby(session_key, "message_count", 1)
         await self.redis.hset(session_key, "updated_at", datetime.now().isoformat())
-        
-        logger.info(f"添加消息成功 - session_id: {session_id}, role: {role}")
+
+        current_message_count = await self.redis.llen(message_list_key)
+        session_message_count = await self.get_message_count(session_id)
+        logger.info(
+            f"添加消息成功 - session_id: {session_id}, role: {role}, "
+            f"redis_list_count: {current_message_count}, session_message_count: {session_message_count}"
+        )
         return True
     
     async def get_messages(
@@ -213,7 +218,11 @@ class SessionService:
             msg_data = json.loads(msg_json)
             msg_data["sources"] = json.loads(msg_data["sources"])
             messages.append(msg_data)
-        
+
+        logger.info(
+            f"获取会话消息成功 - session_id: {session_id}, limit: {limit}, "
+            f"redis_list_count: {message_count}, returned_count: {len(messages)}"
+        )
         return messages
     
     async def clear_messages(self, session_id: str) -> bool:
