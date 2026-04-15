@@ -249,7 +249,7 @@ watch(
                 <el-icon>
                   <img src="../assets/cyberJudge.svg" width="22px" height="22px" />
                 </el-icon>
-                <span>网络审判</span>
+                <span>案件分析</span>
               </template>
             </el-menu-item>
             <el-menu-item index="knowledge" @click="goCurrent('knowledge')">

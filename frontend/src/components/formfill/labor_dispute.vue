@@ -247,13 +247,13 @@
         <tr>
           <td class="label-cell">4.工伤情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.is_migrant_worker || '点击填写'" field-key="is_migrant_worker" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.work_injury || '点击填写'" field-key="work_injury" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
           <td class="label-cell">5.劳动仲裁相关情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.work_injury || '点击填写'" field-key="work_injury" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.is_migrant_worker || '点击填写'" field-key="is_migrant_worker" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>

@@ -9,6 +9,7 @@ import { MdPreview } from "md-editor-v3"
 import "md-editor-v3/lib/style.css"
 import { getSessionListAPI, getSessionAPI, deleteSessionAPI, sendMessage ,uploadFile} from '../../apis/cyberJudge'
 import { useUserStore } from '../../store/user'
+import type { analyzepayload } from '../../apis/cyberJudge'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -163,14 +164,14 @@ const selectSession = async (session_id: string) => {
         console.log('消息详情:', messages.value)
 
         //处理返回的sources信息 TODO: 处理 sources 字段
-        currentSources.value = response.data.data.messages.sources.map((file:any) => ({
-          file_id: file.file_id,
-          file_name: file.file_name,
-          file_type: file.file_type,
-          file_path: file.file_path,
-          file_size: file.file_size,
-          upload_time: file.upload_time,
-        }))
+        // currentSources.value = response.data.data.messages.sources.map((file:any) => ({
+        //   file_id: file.file_id,
+        //   file_name: file.file_name,
+        //   file_type: file.file_type,
+        //   file_path: file.file_path,
+        //   file_size: file.file_size,
+        //   upload_time: file.upload_time,
+        // }))
 
         // 重新获取会话列表
         await fetchSessions()
@@ -187,14 +188,12 @@ const selectSession = async (session_id: string) => {
 }
 
 // 发送消息
-// TODO: 发送消息种需要加入 sources
-const handleSend = async () => {
+const handleSend = () => {
   if (!inputMessage.value.trim()) {
     ElMessage.warning('请输入消息内容')
     return
   }
 
-  // 如果正在生成回复，不允许发送新消息
   if (isGenerating.value) {
     ElMessage.warning('请等待当前回复完成')
     return
@@ -204,58 +203,70 @@ const handleSend = async () => {
   console.log('query:', question)
   console.log('session_id:', currentSessionId.value)
 
-  // 立即清空输入框，提升用户体验
   inputMessage.value = ''
-
-  // 设置正在生成状态（转圈）
   isGenerating.value = true
-
-  // 将用户消息加入消息列表
-  console.log('将用户消息加入 messages')
   messages.value.push({ role: 'user' as const, content: question })
 
-  // 自动滚动到底部
   scrollToBottom()
 
-  console.log('当前 messages 长度:', messages.value.length)
+  const assistantMessage = { role: 'assistant' as const, content: '', timestamp: '' }
+  messages.value.push(assistantMessage)
 
-  try {
-    // 根据新的接口规范构建 payload
-    const payload: request = {
-      message: question,
-      user_id: userId.value,
-      file_paths: currentSources.value.map((file:any) => file.file_path),
-      max_history: 20,
-      stream: false,
-    }
-
-    // 如果 currentSessionId 不为空，才添加 session_id 字段
-    if (currentSessionId.value) {
-      payload.session_id = currentSessionId.value;
-    }
-
-    console.log('准备调用 sendMessage，payload:', payload)
-    const response = await sendMessage(payload.session_id || '', payload.message, payload.user_id, payload.file_paths)
-    if (response.data.code === 200) {
-      console.log('发送消息成功', response.data.data)
-      //将返回信息添加到messages
-
-       messages.value.push({ 
-        role: 'assistant' as const, 
-        content: response.data.data.content || '', 
-        timestamp: response.data.data.timestamp || '', 
-      })
-
-    } else {
-      ElMessage.error(`发送消息失败: ${response.data.status_message}`)
-    }
-    fetchSessions()
-  } catch (e) {
-    console.error('RAG 模式对话异常', e)
-    ElMessage.error('对话异常')
-    isGenerating.value = false  // 异常时解除生成状态
+  const payload: analyzepayload = {
+    message: question,
+    user_id: userId.value,
+    file_paths: currentSources.value.map((file:any) => file.file_path),
+    max_history: 20,
+    stream: true,
   }
 
+  if (currentSessionId.value) {
+    payload.session_id = currentSessionId.value
+  }
+
+  console.log('准备调用 sendMessage，payload:', payload)
+
+  sendMessage(payload)
+    .then((response: any) => {
+      response.data.on('data', (chunk: string) => {
+        const lines = chunk.toString().split('\n')
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') {
+              isGenerating.value = false
+              fetchSessions()
+              return
+            }
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.content) {
+                assistantMessage.content += parsed.content
+                scrollToBottom()
+              }
+            } catch (e) {
+              console.error('解析流式数据失败', e)
+            }
+          }
+        }
+      })
+
+      response.data.on('end', () => {
+        isGenerating.value = false
+        fetchSessions()
+      })
+
+      response.data.on('error', (err: any) => {
+        console.error('流式响应错误', err)
+        ElMessage.error('对话异常')
+        isGenerating.value = false
+      })
+    })
+    .catch((e: any) => {
+      console.error('RAG 模式对话异常', e)
+      ElMessage.error('对话异常')
+      isGenerating.value = false
+    })
 }
 
 //上传多个文件

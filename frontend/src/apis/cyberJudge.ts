@@ -1,5 +1,13 @@
 import { request } from '../utils/request'
 
+export interface analyzepayload {
+  session_id?: string
+  message: string
+  user_id: string
+  file_paths?: string[]
+  stream?: boolean
+  max_history?: number
+}
 
 // 获得对话列表
 export function getSessionListAPI(user_id: string) {
@@ -28,18 +36,13 @@ export function getSessionAPI(session_id:string) {
   })
 }
 
-//发送消息进行文书填写
-export const sendMessage = async (sessionId: string, message: string, userId: string, file_paths: string[]) => {
+//发送消息进行分析
+export const sendMessage = (paylad:analyzepayload) => {
   return request({
     url: `/api/v1/cyber-judge/analyze`,
-    timeout: 60000,
     method: 'post',
-    data: {
-      session_id: sessionId,
-      message: message,
-      user_id: userId,
-      file_paths: file_paths
-    }
+    data: paylad,
+    responseType: 'stream'
   })
 }
 

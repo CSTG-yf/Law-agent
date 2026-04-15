@@ -38,11 +38,10 @@ const showSessionList = ref(true) // 是否显示会话列表
 
 // 四种rag 搜素策略
 const strategys = ref<any[]>([
-  { name: 'vector向量检索', image: '/src/assets/plugin.svg' },
-  { name: 'hybrid混合检索', image: '/src/assets/plugin.svg' },
-  { name: 'mmr最大边际相关性检索', image: '/src/assets/plugin.svg' },
-  { name: 'multi_query多问题改写向量检索', image: '/src/assets/plugin.svg' },
-  { name: 'graph知识图谱检索', image: '/src/assets/plugin.svg' },
+  { name: 'vector向量检索', value: 'vector', image: '/src/assets/plugin.svg' },
+  { name: 'hybrid混合检索', value: 'hybrid', image: '/src/assets/plugin.svg' },
+  { name: 'mmr最大边际相关性检索', value: 'mmr', image: '/src/assets/plugin.svg' },
+  { name: 'multi_query多问题改写向量检索', value: 'multi_query', image: '/src/assets/plugin.svg' },
 ])
 
 // 定义来源元数据接口
@@ -219,6 +218,7 @@ const selectStrategy = (strategy: string) => {
     selectedStrategy.value = strategy
     selectedMode.value = 'rag'
   }
+  console.log(selectedStrategy.value)
   // 选择策略后关闭下拉菜单
   showToolSelector.value = false
 }
@@ -248,7 +248,7 @@ const toggleRagSearch = () => {
     selectedMode.value = 'rag'
     // 如果没有选择策略，默认选择第一个
     if (!selectedStrategy.value && strategys.value.length > 0) {
-      selectedStrategy.value = strategys.value[0].name
+      selectedStrategy.value = strategys.value[0].value
     }
   }
   console.log(selectedMode.value)
@@ -686,8 +686,8 @@ watch(
                             <span class="empty-text">暂无可用 rag 方式</span>
                           </div>
                           <div v-for="strategy in strategys" :key="strategy.name"
-                            :class="['dropdown-item', { selected: selectedStrategy === strategy.name }]"
-                            @click="selectStrategy(strategy.name)">
+                            :class="['dropdown-item', { selected: selectedStrategy === strategy.value }]"
+                            @click="selectStrategy(strategy.value)">
                             <div class="item-left">
                             
                               <div class="item-content">

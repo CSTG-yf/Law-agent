@@ -262,6 +262,9 @@ const handleSend = async () => {
   await nextTick()
   scrollToBottom()
 
+  //清空输入框内容
+  inputMessage.value = ''
+
   try {
     const response = await sendMessageForFormFillAPI(currentSessionId.value, question, userId.value)
     console.log('API 完整响应:', response)
@@ -294,8 +297,6 @@ const handleSend = async () => {
       isGenerating.value = false
       ElMessage.error(`消息发送失败: ${response.data.status_message}`)
     }
-
-    inputMessage.value = ''
 
   } catch (e) {
     console.error('RAG 模式对话异常', e)
