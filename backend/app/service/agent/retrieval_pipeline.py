@@ -173,12 +173,30 @@ class SmartRetrievalPipeline:
                 logger.info(f"预检索无结果，继续执行RAG检索")
             else:
                 avg_distance = sum(d.get("distance", 1) for d in pre_retrieve_result.documents) / max(len(pre_retrieve_result.documents), 1)
-                if avg_distance < 0.3:
+                min_distance = min(d.get("distance", 1) for d in pre_retrieve_result.documents)
+                max_distance = max(d.get("distance", 1) for d in pre_retrieve_result.documents)
+                distance_span = max_distance - min_distance
+
+                if distance_span <= 1e-9:
+                    normalized_avg_distance = 0.0
+                else:
+                    normalized_avg_distance = sum(
+                        (d.get("distance", 1) - min_distance) / distance_span
+                        for d in pre_retrieve_result.documents
+                    ) / max(len(pre_retrieve_result.documents), 1)
+
+                if normalized_avg_distance < 0.3:
                     metadata.pre_retrieval_hint = "high_quality"
-                    logger.info(f"预检索质量较高 - avg_distance: {avg_distance:.3f}")
+                    logger.info(
+                        f"预检索质量较高 - avg_distance: {avg_distance:.3f}, "
+                        f"normalized_avg_distance: {normalized_avg_distance:.3f}"
+                    )
                 else:
                     metadata.pre_retrieval_hint = "low_quality"
-                    logger.info(f"预检索质量一般 - avg_distance: {avg_distance:.3f}")
+                    logger.info(
+                        f"预检索质量一般 - avg_distance: {avg_distance:.3f}, "
+                        f"normalized_avg_distance: {normalized_avg_distance:.3f}"
+                    )
 
         if intent_result and intent_result.needs_rewrite:
             rewritten = await self.query_rewriter.rewrite(query, conversation_history)

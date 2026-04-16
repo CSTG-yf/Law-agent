@@ -396,19 +396,52 @@ class SlotManager:
                 ("termination_compensation", "active", "details"),
                 ("illegal_termination_damages", "active", "details"),
             ]
-            effective_slots = {}
+
+            def _has_meaningful_value(slot: Optional[SlotStatus]) -> bool:
+                return slot is not None and slot.value is not None and slot.value != ""
+
+            total_slots = 0
+            filled_slots = 0
+            all_claims_answered = True
+            active_claim_details_complete = True
+
             for prefix, active_key, details_key in claims_pairs:
                 active_slot = block.slots.get(f"{prefix}.{active_key}")
                 details_slot = block.slots.get(f"{prefix}.{details_key}")
-                if active_slot and active_slot.value == True:
-                    effective_slots[f"{prefix}.{active_key}"] = active_slot
-                    effective_slots[f"{prefix}.{details_key}"] = details_slot
-                elif active_slot and active_slot.value == False:
-                    effective_slots[f"{prefix}.{active_key}"] = active_slot
-                    effective_slots[f"{prefix}.{details_key}"] = details_slot
-            for k, v in block.slots.items():
-                if k not in effective_slots and not any(k == f"{p}.{ak}" or k == f"{p}.{dk}" for p, ak, dk in claims_pairs):
-                    effective_slots[k] = v
+
+                total_slots += 1
+                if active_slot and active_slot.value is not None:
+                    filled_slots += 1
+                else:
+                    all_claims_answered = False
+
+                if active_slot and active_slot.value is True:
+                    total_slots += 1
+                    if _has_meaningful_value(details_slot):
+                        filled_slots += 1
+                    else:
+                        active_claim_details_complete = False
+
+            other_requests_slot = block.slots.get("other_requests")
+            litigation_slot = block.slots.get("litigation_cost_burden")
+            other_requests_filled = _has_meaningful_value(other_requests_slot)
+            litigation_filled = _has_meaningful_value(litigation_slot)
+
+            total_slots += 2
+            if other_requests_filled:
+                filled_slots += 1
+            if litigation_filled:
+                filled_slots += 1
+
+            block.completion_rate = filled_slots / total_slots if total_slots > 0 else 0.0
+            block.is_complete = (
+                all_claims_answered
+                and active_claim_details_complete
+                and other_requests_filled
+                and litigation_filled
+            )
+            logger.info(f"更新业务块完成度 - session_id: {session.session_id}, block_id: {block_id}, completion_rate: {block.completion_rate:.2f}, is_complete: {block.is_complete}")
+            return
         else:
             effective_slots = block.slots
 

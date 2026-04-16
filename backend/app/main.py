@@ -22,21 +22,34 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://8.136.50.213:39082",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
-    
+
     method = request.method
     path = request.url.path
-    
+
     try:
+        headers = dict(request.headers)
+
+        if method == "OPTIONS":
+            api_logger.log_request(method, path, {}, headers)
+            response = await call_next(request)
+            duration = time.time() - start_time
+            api_logger.log_response(method, path, response.status_code, None, duration)
+            return response
+
         body = await request.body()
         params = {}
         if body:
@@ -44,19 +57,17 @@ async def log_requests(request: Request, call_next):
                 params = json.loads(body.decode())
             except:
                 params = {"raw_body": str(body)[:200]}
-        
-        headers = dict(request.headers)
-        
+
         api_logger.log_request(method, path, params, headers)
-        
+
         response = await call_next(request)
-        
+
         duration = time.time() - start_time
-        
+
         api_logger.log_response(method, path, response.status_code, None, duration)
-        
+
         return response
-        
+
     except Exception as e:
         duration = time.time() - start_time
         api_logger.log_error(method, path, e, duration)

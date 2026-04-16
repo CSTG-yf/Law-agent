@@ -77,7 +77,20 @@ class ConversationStrategy:
             if claims_action:
                 return claims_action
 
+        if state.current_block == "facts":
+            facts_block = state.blocks.get("facts")
+            if facts_block:
+                legal_basis_slot = facts_block.slots.get("legal_basis")
+                if current_block.completion_rate >= 0.8 and (not legal_basis_slot or not legal_basis_slot.value):
+                    return {
+                        "message": "事实与理由部分已填写完成。是否需要我为您自动生成法律条文依据？您可以回复\"生成法律条文\"或\"不需要\"。",
+                        "needs_clarification": False,
+                        "suggested_next_action": None
+                    }
+
         missing_optional = self._get_missing_optional_slots(state, state.current_block)
+        if state.current_block == "facts":
+            missing_optional = [slot_name for slot_name in missing_optional if slot_name != "facts.legal_basis"]
         if missing_optional and not user_wants_skip:
             slot_name = missing_optional[0]
             question = self._generate_question_for_slot(slot_name)
@@ -249,25 +262,24 @@ class ConversationStrategy:
     def handle_user_intent(self, user_input: str, state: FormFillingState) -> Optional[str]:
         user_input_lower = user_input.lower()
 
-        skip_patterns = ["没有代理人", "没有代理", "无代理人", "无代理", "不需要代理人", "不需要代理", "没有", "不需要", "无"]
-        is_skip = False
-        for pattern in skip_patterns:
+        negative_reply_patterns = ["没有代理人", "没有代理", "无代理人", "无代理", "不需要代理人", "不需要代理", "没有", "不需要", "无"]
+        is_negative_reply = False
+        for pattern in negative_reply_patterns:
             if pattern in user_input:
-                is_skip = True
+                is_negative_reply = True
                 break
-        if not is_skip:
+        if not is_negative_reply:
             input_stripped = user_input.strip()
             if input_stripped.startswith("没有") or input_stripped.startswith("无") or input_stripped.startswith("不需要"):
-                is_skip = True
+                is_negative_reply = True
 
-        if is_skip:
+        if is_negative_reply:
             if state.current_block == "agent":
                 return "skip_agent"
             if state.current_block == "preservation":
                 return "skip_preservation"
             if state.current_block == "claims":
                 return "confirm_remaining_claims"
-            return "skip_current_block"
 
         if "跳过" in user_input or "skip" in user_input_lower:
             if state.current_block == "agent":

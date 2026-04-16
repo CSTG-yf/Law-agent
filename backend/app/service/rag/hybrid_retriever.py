@@ -5,6 +5,7 @@ from app.service.vector_db import ChromaVectorStore
 from app.service.rag.ollama_embedding import OllamaEmbedding
 import jieba
 from app.core.logger import get_logger
+from app.core.config import settings
 
 logger = get_logger("hybrid_retriever")
 
@@ -203,11 +204,15 @@ class MMRRetriever:
         Returns:
             检索结果列表
         """
-        logger.info(f"开始MMR检索 - query: {query[:50]}, k: {k}, fetch_k: {fetch_k}, lambda_mult: {lambda_mult}")
-        
+        effective_fetch_k = max(k, min(fetch_k, settings.MMR_MAX_FETCH_K))
+        logger.info(
+            f"开始MMR检索 - query: {query[:50]}, k: {k}, fetch_k: {fetch_k}, "
+            f"effective_fetch_k: {effective_fetch_k}, lambda_mult: {lambda_mult}"
+        )
+
         initial_results = self.vector_store.query(
             query,
-            n_results=fetch_k,
+            n_results=effective_fetch_k,
             where=filters
         )
         
@@ -226,16 +231,33 @@ class MMRRetriever:
             docs.append(doc)
         
         logger.info(f"MMR初始检索完成 - 获取 {len(docs)} 个候选文档")
-        
-        query_embedding = self.embedding_service.embed_text_sync(query)
-        
-        doc_embeddings = []
-        logger.info(f"开始预计算文档嵌入向量 - 文档数: {len(docs)}")
-        for i, doc in enumerate(docs):
-            emb = self.embedding_service.embed_text_sync(doc.page_content)
-            doc_embeddings.append(emb)
-        logger.info(f"文档嵌入向量预计算完成")
-        
+
+        distances = [doc.metadata.get("distance", 0) for doc in docs]
+        min_distance = min(distances)
+        max_distance = max(distances)
+        distance_span = max_distance - min_distance
+
+        for doc in docs:
+            distance = doc.metadata.get("distance", 0)
+            if distance_span <= 1e-9:
+                normalized_distance = 0.0
+            else:
+                normalized_distance = (distance - min_distance) / distance_span
+            doc.metadata["normalized_distance"] = normalized_distance
+            doc.metadata["relevance_score"] = 1 - normalized_distance
+
+        logger.info(
+            f"MMR候选距离归一化完成 - min_distance: {min_distance:.6f}, "
+            f"max_distance: {max_distance:.6f}, distance_span: {distance_span:.6f}"
+        )
+
+        texts_to_embed = [query] + [doc.page_content for doc in docs]
+        logger.info(f"开始批量预计算嵌入向量 - 文本数: {len(texts_to_embed)}")
+        embeddings = self.embedding_service.embed_texts_sync(texts_to_embed)
+        query_embedding = embeddings[0]
+        doc_embeddings = embeddings[1:]
+        logger.info(f"批量嵌入向量预计算完成 - 文档数: {len(doc_embeddings)}")
+
         selected = []
         selected_embeddings = []
         remaining = list(range(len(docs)))
@@ -247,7 +269,7 @@ class MMRRetriever:
             for idx in remaining:
                 doc_embedding = doc_embeddings[idx]
                 
-                relevance = 1 - docs[idx].metadata.get("distance", 0)
+                relevance = docs[idx].metadata.get("relevance_score", 0.0)
                 
                 if selected_embeddings:
                     similarities = [

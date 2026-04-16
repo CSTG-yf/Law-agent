@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # RAG 检索配置（可动态配置）
     RAG_TOP_K: int = 5
     RAG_FETCH_K: int = 20
+    MMR_MAX_FETCH_K: int = 20
     PRE_RETRIEVE_TOP_K: int = 5
     MAX_HISTORY_LENGTH: int = 10
     

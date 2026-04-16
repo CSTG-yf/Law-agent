@@ -137,6 +137,18 @@ def _confirm_remaining_claims(slot_manager, session_id: str):
             )
             logger.info(f"确认剩余诉讼请求 - session_id: {session_id}, slot: {claim_key}.details, value: None")
 
+    other_requests_slot = claims_block.slots.get("other_requests")
+    if other_requests_slot and (other_requests_slot.value is None or other_requests_slot.value == ""):
+        claims_block.slots["other_requests"] = SlotStatus(
+            value="无",
+            confirmed=True,
+            source="user_input",
+            confidence=1.0,
+            turn_filled=session.conversation_turn
+        )
+        logger.info(f"确认剩余诉讼请求 - session_id: {session_id}, slot: other_requests, value: 无")
+
+    slot_manager._update_block_completion(session, "claims")
     slot_manager._save_session(session)
     logger.info(f"确认剩余诉讼请求完成 - session_id: {session_id}")
 
@@ -372,6 +384,55 @@ async def send_message(request: SendMessageRequest):
                 return await generate_document_impl(request.session_id)
             elif user_intent == "confirm_remaining_claims":
                 _confirm_remaining_claims(slot_manager, request.session_id)
+                state = slot_manager.get_session(request.session_id)
+                next_action = conversation_strategy.generate_next_action(
+                    state,
+                    {"extracted_slots": {}, "clarification_questions": []},
+                    user_input=request.message
+                )
+
+                suggested_next_action = next_action.get("suggested_next_action")
+                if suggested_next_action and suggested_next_action.startswith("switch_to_"):
+                    target_block = suggested_next_action.replace("switch_to_", "")
+                    slot_manager.finalize_block(request.session_id, state.current_block)
+                    success = slot_manager.switch_block(request.session_id, target_block)
+                    if success:
+                        state = slot_manager.get_session(request.session_id)
+
+                all_extracted_slots = {}
+                for block_id, block_data in state.blocks.items():
+                    for slot_name, slot_status in block_data.slots.items():
+                        if slot_status.value is not None:
+                            full_slot_name = f"{block_id}.{slot_name}"
+                            all_extracted_slots[full_slot_name] = slot_status.value
+
+                current_block_data = state.blocks.get(state.current_block)
+                current_block_completion_rate = current_block_data.completion_rate if current_block_data else 0.0
+
+                response = SendMessageResponse(
+                    session_id=request.session_id,
+                    message=next_action["message"],
+                    current_block=state.current_block,
+                    completion_rate=current_block_completion_rate,
+                    extracted_slots=all_extracted_slots,
+                    needs_clarification=next_action["needs_clarification"],
+                    clarification_questions=[],
+                    suggested_next_action=suggested_next_action
+                )
+
+                slot_manager.save_conversation_history(request.session_id, "user", request.message)
+                slot_manager.save_conversation_history(request.session_id, "assistant", response.message)
+
+                logger.info(
+                    f"确认剩余诉讼请求后直接推进流程 - session_id: {request.session_id}, "
+                    f"current_block: {state.current_block}, completion_rate: {response.completion_rate:.2f}"
+                )
+                return {
+                    "code": HttpStatus.OK,
+                    "status": "success",
+                    "message": "",
+                    "data": response.model_dump()
+                }
             elif user_intent == "generate_legal_basis":
                 await _auto_generate_legal_basis(request.session_id)
                 state = slot_manager.get_session(request.session_id)
@@ -467,11 +528,18 @@ async def send_message(request: SendMessageRequest):
                     full_slot_name = f"{block_id}.{slot_name}"
                     known_slots[full_slot_name] = slot_status.value
 
+        conversation_history_entries = slot_manager.get_conversation_history(request.session_id, limit=6)
+        conversation_history = [
+            f"{entry.get('role', 'unknown')}: {entry.get('message', '')}"
+            for entry in conversation_history_entries
+        ]
+
         slot_extractor = get_slot_extractor()
         extraction_result = await slot_extractor.extract_slots(
             user_input=request.message,
             current_block=state.current_block,
-            known_slots=known_slots
+            known_slots=known_slots,
+            conversation_history=conversation_history
         )
 
         for slot_name, value in extraction_result.extracted_slots.items():
