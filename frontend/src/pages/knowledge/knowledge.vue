@@ -26,6 +26,10 @@ const documentContentLoading = ref(false)
 const uploading = ref(false)
 const batchUploading = ref(false)
 const deleting = ref(false)
+const deleteDialogVisible = ref(false)
+const uploadResultVisible = ref(false)
+const uploadResultTitle = ref('')
+const uploadResultMessage = ref('')
 
 // 查询相关状态
 const searchVisible = ref(false)
@@ -36,6 +40,110 @@ const filteredDocuments = computed(() => {
   const keyword = searchKeyword.value.trim()
   if (!keyword) return documents.value
   return documents.value.filter((doc) => doc.file_name.toLowerCase().includes(keyword.toLowerCase()))
+})
+
+// 当前文档是否为 PDF
+const isPdfDocument = computed(() => {
+  const name = selectedDocument.value?.file_name || ''
+  return name.toLowerCase().endsWith('.pdf')
+})
+
+// 规范化 PDF 页面文本：去掉页码行、压缩空行，并按段落合并行，提高可读性
+const normalizePdfPageText = (text: string) => {
+  const rawLines = text.split(/\r?\n/)
+
+  // 先清理掉页码行和空白行，保留需要的文本
+  const cleanedLines: string[] = []
+  for (const line of rawLines) {
+    const trimmed = line.trim()
+
+    // 跳过形如 "[页面2]" 的标记
+    if (/^\[页面\d+\]$/.test(trimmed)) continue
+    // 跳过形如 "- 2 -" 这类页码行
+    if (/^-+\s*\d+\s*-+$/.test(trimmed)) continue
+
+    cleanedLines.push(trimmed)
+  }
+
+  // 再按段落合并：连续非空行合并成一个段落，段落之间用一个空行分隔
+  const paragraphs: string[] = []
+  let currentParagraph = ''
+
+  for (const line of cleanedLines) {
+    if (!line) {
+      if (currentParagraph) {
+        paragraphs.push(currentParagraph)
+        currentParagraph = ''
+      }
+      continue
+    }
+
+    currentParagraph += (currentParagraph ? ' ' : '') + line
+  }
+
+  if (currentParagraph) {
+    paragraphs.push(currentParagraph)
+  }
+
+  return paragraphs.join('\n\n').trim()
+}
+
+// 针对 PDF 的分页内容（根据 [页面1]、[页面2] 等标记拆分，同一页码会自动合并并做文本规范化）
+const pdfPages = computed(() => {
+  if (!isPdfDocument.value) return [] as { title: string; content: string }[]
+
+  const raw = documentContent.value || ''
+  if (!raw) return [] as { title: string; content: string }[]
+
+  const pagesMap = new Map<string, string>()
+  const regex = /\[页面(\d+)\]/g
+
+  let lastIndex = 0
+  let currentPageNo: string | null = null
+  let match: RegExpExecArray | null
+
+  // 遍历所有页码标记，把中间的文本归属到对应的页面里
+  while ((match = regex.exec(raw)) !== null) {
+    const pageNo = match[1]
+
+    if (currentPageNo) {
+      const segment = raw.slice(lastIndex, match.index).trim()
+      if (segment) {
+        const existing = pagesMap.get(currentPageNo) || ''
+        pagesMap.set(currentPageNo, existing ? `${existing}\n${segment}` : segment)
+      }
+    }
+
+    currentPageNo = pageNo
+    lastIndex = regex.lastIndex
+  }
+
+  // 处理最后一段文本
+  if (currentPageNo) {
+    const tail = raw.slice(lastIndex).trim()
+    if (tail) {
+      const existing = pagesMap.get(currentPageNo) || ''
+      pagesMap.set(currentPageNo, existing ? `${existing}\n${tail}` : tail)
+    }
+  }
+
+  // 如果没有识别到任何 [页面X] 标记，则整体作为一页
+  if (pagesMap.size === 0) {
+    return [
+      {
+        title: '全文',
+        content: normalizePdfPageText(raw)
+      }
+    ]
+  }
+
+  // 根据页码排序并转换成数组
+  return Array.from(pagesMap.entries())
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([pageNo, content]) => ({
+      title: `第 ${pageNo} 页`,
+      content: normalizePdfPageText(content)
+    }))
 })
 
 // 触发文件选择
@@ -91,11 +199,11 @@ const handleFileChange = async (event: Event) => {
     console.log('文件上传响应:', res)
     // 一般我们更关心 res.data 的内容
     console.log('上传返回的数据:', res.data)
-    const successMsg = (res.data as any)?.message || '文件上传成功，服务器将异步处理'
+    const successMsg = (res.data as any)?.message || '文档上传成功，正在后台处理'
     ElMessage.success(successMsg)
-    await ElMessageBox.alert(successMsg, '上传成功', {
-      type: 'success'
-    })
+    uploadResultTitle.value = '上传成功'
+    uploadResultMessage.value = successMsg
+    uploadResultVisible.value = true
     // 上传完成后，重新拉取一次文档列表
     await handleGetDocuments()
   } catch (error) {
@@ -106,9 +214,9 @@ const handleFileChange = async (event: Event) => {
       (error as any)?.message ||
       '上传文档失败'
     ElMessage.error(errMessage)
-    await ElMessageBox.alert(errMessage, '上传失败', {
-      type: 'error'
-    })
+    uploadResultTitle.value = '上传失败'
+    uploadResultMessage.value = errMessage
+    uploadResultVisible.value = true
   } finally {
     uploading.value = false
     // 清空 input，避免同一个文件无法再次选择
@@ -132,11 +240,11 @@ const handleBatchFileChange = async (event: Event) => {
     const res = await uploadRagDocumentsBatchAPI(formData)
     console.log('批量上传响应:', res)
     console.log('批量上传返回的数据:', res.data)
-    const successMsg = (res.data as any)?.message || 'ZIP 批量上传成功，服务器将异步处理'
+    const successMsg = (res.data as any)?.message || 'ZIP 批量上传成功，正在后台处理'
     ElMessage.success(successMsg)
-    await ElMessageBox.alert(successMsg, '批量上传成功', {
-      type: 'success'
-    })
+    uploadResultTitle.value = '批量上传成功'
+    uploadResultMessage.value = successMsg
+    uploadResultVisible.value = true
     await handleGetDocuments()
   } catch (error) {
     console.error('批量上传文档失败:', error)
@@ -146,49 +254,57 @@ const handleBatchFileChange = async (event: Event) => {
       (error as any)?.message ||
       '批量上传文档失败'
     ElMessage.error(errMessage)
-    await ElMessageBox.alert(errMessage, '批量上传失败', {
-      type: 'error'
-    })
+    uploadResultTitle.value = '批量上传失败'
+    uploadResultMessage.value = errMessage
+    uploadResultVisible.value = true
   } finally {
     batchUploading.value = false
     if (input) input.value = ''
   }
 }
 
-// 删除当前选中文档
-const handleDeleteDocument = async () => {
+// 点击删除按钮：只负责打开本页内的确认弹框
+const handleDeleteDocument = () => {
+  console.log('点击删除文档按钮，当前选中文档：', selectedDocument.value)
   if (!selectedDocument.value) {
     ElMessage.warning('请先在左侧选择要删除的文档')
     return
   }
+  deleteDialogVisible.value = true
+}
 
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除文档 \"${selectedDocument.value.file_name}\" 及其所有分片吗？`,
-      '删除确认',
-      {
-        confirmButtonText: '确认删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-  } catch {
-    // 用户取消
+// 在确认弹框中点击“确认删除”后，执行真正的删除请求
+const handleConfirmDelete = async () => {
+  if (!selectedDocument.value) {
+    deleteDialogVisible.value = false
     return
   }
 
+  deleteDialogVisible.value = false
   deleting.value = true
   try {
     const res = await deleteRagDocumentAPI(selectedDocument.value.file_hash)
     console.log('删除文档响应:', res)
-    ElMessage.success(res.data?.message || '删除任务已提交，后台正在处理')
+    const successMsg = res.data?.message || '删除任务已提交，后台正在处理'
+    ElMessage.success(successMsg)
+    await ElMessageBox.alert(successMsg, '删除成功', {
+      type: 'success'
+    })
     // 删除后刷新列表并清空选中
     selectedDocument.value = null
     documentContent.value = ''
     await handleGetDocuments()
   } catch (error) {
     console.error('删除文档失败:', error)
-    ElMessage.error('删除文档失败')
+    const errMessage =
+      (error as any)?.response?.data?.status_message ||
+      (error as any)?.response?.data?.message ||
+      (error as any)?.message ||
+      '删除文档失败'
+    ElMessage.error(errMessage)
+    await ElMessageBox.alert(errMessage, '删除失败', {
+      type: 'error'
+    })
   } finally {
     deleting.value = false
   }
@@ -329,7 +445,21 @@ onMounted(() => {
         </p> -->
         <div class="detail-content">
           <div v-if="documentContentLoading" class="detail-loading">正在加载文档内容...</div>
-          <pre v-else>{{ documentContent }}</pre>
+          <template v-else>
+            <!-- PDF 文档分页排版展示 -->
+            <div v-if="isPdfDocument && pdfPages.length" class="pdf-pages-wrapper">
+              <div
+                v-for="(page, index) in pdfPages"
+                :key="index"
+                class="pdf-page"
+              >
+                <div class="pdf-page-header">{{ page.title }}</div>
+                <div class="pdf-page-content">{{ page.content }}</div>
+              </div>
+            </div>
+            <!-- 其他文档类型保持原来的预格式文本展示 -->
+            <pre v-else>{{ documentContent }}</pre>
+          </template>
         </div>
         <!-- <p class="detail-placeholder">
           这里暂时显示文档的基本信息。如果后端提供文档内容接口，可以在这里加载并展示具体内容。
@@ -339,7 +469,63 @@ onMounted(() => {
         请选择左侧的文档查看详情
       </div>
     </div>
- 
+    <!-- 上传结果弹框（单个/批量共用） -->
+    <div v-if="uploadResultVisible" class="dialog-overlay">
+      <div class="dialog-container">
+        <div class="dialog-header">
+          <h3>{{ uploadResultTitle }}</h3>
+          <button
+            class="close-btn"
+            type="button"
+            @click="uploadResultVisible = false"
+          >
+            ×
+          </button>
+        </div>
+        <div class="dialog-body">
+          <p>{{ uploadResultMessage }}</p>
+        </div>
+        <div class="dialog-footer">
+          <button
+            class="primary-btn"
+            type="button"
+            @click="uploadResultVisible = false"
+          >
+            我知道了
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- 删除确认原生弹框 -->
+    <div v-if="deleteDialogVisible" class="dialog-overlay">
+      <div class="delete-dialog-container">
+        <div class="delete-dialog-body">
+          <p>
+            确定要删除文档
+            <strong>{{ selectedDocument?.file_name }}</strong>
+            及其所有分片吗？
+          </p>
+        </div>
+        <div class="delete-dialog-footer">
+          <button
+            class="delete-dialog-btn cancel-btn"
+            type="button"
+            @click="deleteDialogVisible = false"
+            :disabled="deleting"
+          >
+            取消
+          </button>
+          <button
+            class="delete-dialog-btn confirm-btn"
+            type="button"
+            @click="handleConfirmDelete"
+            :disabled="deleting"
+          >
+            {{ deleting ? '正在删除...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -668,6 +854,41 @@ onMounted(() => {
   margin-top: 16px;
   font-size: 14px;
   color: #4b5563;
+}
+
+/* PDF 文档分页阅读样式 */
+.detail-content {
+  height: 100%;
+}
+
+.pdf-pages-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pdf-page {
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.pdf-page-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.pdf-page-content {
+  font-size: 14px;
+  line-height: 1.8;
+  color: #111827;
+  white-space: pre-wrap;
 }
 
 /* 原生对话框样式 */
