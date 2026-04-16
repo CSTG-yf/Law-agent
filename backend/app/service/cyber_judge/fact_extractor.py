@@ -1,4 +1,5 @@
 from typing import List, Optional
+import asyncio
 import json
 import re
 from app.core.logger import get_logger
@@ -63,12 +64,14 @@ class FactExtractor:
             logger.info(f"文本过长，拆分为{len(chunks)}个分块进行事实提取")
 
         selected_chunks = chunks[:3]
-        all_facts = []
-        for index, chunk in enumerate(selected_chunks, 1):
-            facts = await self._extract_facts_from_chunk(chunk, index, len(selected_chunks))
-            all_facts.append(facts)
+        all_facts = await asyncio.gather(
+            *[
+                self._extract_facts_from_chunk(chunk, index, len(selected_chunks))
+                for index, chunk in enumerate(selected_chunks, 1)
+            ]
+        )
 
-        return self._merge_facts(all_facts)
+        return self._merge_facts(list(all_facts))
 
     async def _extract_facts_from_chunk(self, text: str, chunk_index: int, total_chunks: int) -> ExtractedFacts:
         prompt = CyberJudgePrompts.FACT_EXTRACTION_PROMPT.format(text_content=text)
@@ -210,10 +213,24 @@ class FactExtractor:
                 "道路交通事故": "道路交通安全法",
                 "交通事故": "道路交通安全法",
                 "事故责任认定": "道路交通安全法",
-                "机动车交通事故责任纠纷": "民法典侵权责任",
-                "电动车交通事故": "道路交通安全法"
+                "电动车交通事故": "道路交通安全法",
+                "机动车行经人行横道规定": "道路交通安全法",
+                "交通事故责任划分": "道路交通安全法",
+                "闯红灯": "道路交通安全法",
+                "减速让行": "道路交通安全法",
+                "人行横道": "道路交通安全法"
             }
-            return mapping.get(keyword, keyword)
+            law_names = {
+                "道路交通安全法",
+                "劳动合同法",
+                "劳动法",
+                "工伤保险条例",
+                "行政处罚法",
+                "消费者权益保护法",
+                "民法典合同编"
+            }
+            mapped = mapping.get(keyword, keyword)
+            return mapped if mapped in law_names else ""
 
         return keyword
 
@@ -264,6 +281,7 @@ class FactExtractor:
             case_candidates.extend(self._normalize_fact_list(extracted_facts.get("disputes", [])))
             case_candidates.extend(self._normalize_fact_list(extracted_facts.get("events", [])))
             law_candidates.extend(self._normalize_fact_list(extracted_facts.get("disputes", [])))
+            law_candidates.extend(self._normalize_fact_list(extracted_facts.get("events", [])))
 
         case_candidates.extend(candidates)
         law_candidates.extend(candidates)
@@ -272,7 +290,7 @@ class FactExtractor:
         law_keywords = self._pick_best_keywords(law_candidates, for_law=True)
 
         if not law_keywords:
-            law_keywords = case_keywords[:]
+            law_keywords = self._extract_law_clues(query)
         if not case_keywords:
             case_keywords = law_keywords[:]
 

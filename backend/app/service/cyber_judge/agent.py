@@ -333,13 +333,37 @@ class CyberJudgeAgent:
         logger.info(
             f"开始生成最终回答 - session_id: {state.get('session_id')}, cases: {len(response_context['related_cases'])}, laws: {len(response_context['related_laws'])}, law_details: {len(response_context['law_details'])}"
         )
-        response = await self.llm.ainvoke(
-            response_context["messages"] + [HumanMessage(content=response_context["prompt"])]
-        )
-        final_content = self._normalize_stream_chunk(getattr(response, "content", ""))
+        content_parts: List[str] = []
+        stream_error: Exception | None = None
 
-        for chunk_content in self._chunk_stream_content(final_content):
-            yield chunk_content
+        try:
+            async for chunk in self.llm.astream(
+                response_context["messages"] + [HumanMessage(content=response_context["prompt"])]
+            ):
+                chunk_content = self._normalize_stream_chunk(getattr(chunk, "content", ""))
+                if not chunk_content:
+                    continue
+                content_parts.append(chunk_content)
+                yield chunk_content
+        except Exception as e:
+            stream_error = e
+            logger.warning(f"流式生成失败，降级为分块输出 - session_id: {state.get('session_id')}, error: {str(e)}")
+
+        if not content_parts:
+            if stream_error is None:
+                logger.warning(f"流式生成未返回内容，降级为分块输出 - session_id: {state.get('session_id')}")
+            response = await self.llm.ainvoke(
+                response_context["messages"] + [HumanMessage(content=response_context["prompt"])]
+            )
+            final_content = self._normalize_stream_chunk(getattr(response, "content", ""))
+            for chunk_content in self._chunk_stream_content(final_content):
+                if not chunk_content:
+                    continue
+                content_parts.append(chunk_content)
+                yield chunk_content
+                await asyncio.sleep(0.02)
+
+        final_content = "".join(content_parts)
 
         response_output = self._build_response_output(
             intent_type=response_context["intent_type"],

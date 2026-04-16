@@ -196,6 +196,8 @@ class CyberJudgeMessage(BaseModel):
     content: str = Field(..., description="消息内容")
     timestamp: str = Field(..., description="时间戳")
     sources: List[dict] = Field(default_factory=list, description="消息来源")
+    related_laws: List[LawInfoResponse] = Field(default_factory=list, description="消息关联法规")
+    related_cases: List[CaseInfoResponse] = Field(default_factory=list, description="消息关联案例")
 
 
 class CyberJudgeSessionHistory(BaseModel):

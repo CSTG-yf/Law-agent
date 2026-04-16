@@ -138,18 +138,68 @@ async def _stream_cyber_judge_response(
     agent: CyberJudgeAgent
 ) -> StreamingResponse:
     logger.info(f"开始赛博判官流式响应 - session_id: {session_id}")
-    user_sources = [_build_uploaded_file_source(file_info) for file_info in uploaded_files]
     message_id = str(uuid.uuid4())
     existing_title = session.get("title")
 
     async def event_generator():
         payload: Optional[CyberJudgeStreamPayload] = None
         final_content = ""
+        stream_uploaded_files = list(uploaded_files)
+        stream_state_update = dict(state_update)
 
         try:
             yield f"event: metadata\ndata: {json.dumps({'message_id': message_id, 'session_id': session_id, 'role': 'assistant', 'title': existing_title}, ensure_ascii=False)}\n\n"
 
-            async for chunk in agent.astream_final_response(state_update, config=config):
+            if request.file_paths:
+                yield f"event: progress\ndata: {json.dumps({'stage': 'extract_facts', 'message': '正在提取文档事实，请稍候...'}, ensure_ascii=False)}\n\n"
+
+            if request.file_paths and not stream_uploaded_files:
+                llm = ChatOpenAI(
+                    model=settings.MODEL_NAME,
+                    temperature=0.7,
+                    base_url=settings.OPENAI_BASE_URL,
+                    api_key=settings.DASHSCOPE_API_KEY or settings.OPENAI_API_KEY
+                )
+                fact_extractor = FactExtractor(llm)
+                extracted_facts = None
+
+                total_files = len(request.file_paths)
+                for index, file_path in enumerate(request.file_paths, 1):
+                    if os.path.exists(file_path):
+                        filename = Path(file_path).name
+                        yield f"event: progress\ndata: {json.dumps({'stage': 'extract_facts', 'message': f'正在提取第{index}/{total_files}个文件的事实信息：{filename}'}, ensure_ascii=False)}\n\n"
+                        file_info, facts = await fact_extractor.extract_from_file(file_path, filename)
+                        stream_uploaded_files.append(file_info)
+
+                        if facts:
+                            if extracted_facts is None:
+                                extracted_facts = facts
+                            else:
+                                for field in ["parties", "events", "disputes", "claims", "key_dates", "amounts", "locations"]:
+                                    normalized_values = [str(item).strip() for item in facts.get(field, []) if str(item).strip()]
+                                    extracted_facts[field].extend(normalized_values)
+                                    extracted_facts[field] = list(dict.fromkeys(extracted_facts[field]))
+
+                                summaries = [item for item in [extracted_facts.get("summary", ""), facts.get("summary", "")] if item]
+                                extracted_facts["summary"] = "；".join(dict.fromkeys(summaries))
+
+                            logger.info(
+                                f"流式文件事实已载入 - filename: {filename}, summary_length: {len(facts.get('summary', ''))}, text_length: {file_info.get('extracted_text_length', 0)}"
+                            )
+
+                stream_state_update["uploaded_files"] = stream_uploaded_files
+                stream_state_update["extracted_facts"] = extracted_facts
+
+            extracted_facts = stream_state_update.get("extracted_facts")
+            facts_summary = extracted_facts.get("summary", "").strip() if extracted_facts else ""
+            if facts_summary:
+                yield f"event: facts_summary\ndata: {json.dumps({'title': '已识别文件事实', 'summary': facts_summary}, ensure_ascii=False)}\n\n"
+
+            yield f"event: progress\ndata: {json.dumps({'stage': 'analyze', 'message': '正在检索相关案例与法规并生成分析结论...'}, ensure_ascii=False)}\n\n"
+
+            user_sources = [_build_uploaded_file_source(file_info) for file_info in stream_uploaded_files]
+
+            async for chunk in agent.astream_final_response(stream_state_update, config=config):
                 if isinstance(chunk, str):
                     final_content += chunk
                     yield f"event: token\ndata: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
@@ -160,7 +210,7 @@ async def _stream_cyber_judge_response(
                 raise RuntimeError("流式响应未生成最终结果")
 
             assistant_sources = _build_assistant_sources(
-                uploaded_files=uploaded_files,
+                uploaded_files=stream_uploaded_files,
                 related_cases=payload["related_cases"],
                 related_laws=payload["related_laws"],
                 law_details=payload["law_details"]
@@ -176,7 +226,9 @@ async def _stream_cyber_judge_response(
                 session_id=session_id,
                 role="assistant",
                 content=final_content,
-                sources=assistant_sources
+                sources=assistant_sources,
+                related_laws=payload["related_laws"],
+                related_cases=payload["related_cases"]
             )
 
             title = existing_title
@@ -398,8 +450,8 @@ async def analyze_case(request: CyberJudgeRequest):
         
         uploaded_files = []
         extracted_facts = None
-        
-        if request.file_paths:
+
+        if request.file_paths and not request.stream:
             llm = ChatOpenAI(
                 model=settings.MODEL_NAME,
                 temperature=0.7,
@@ -407,13 +459,13 @@ async def analyze_case(request: CyberJudgeRequest):
                 api_key=settings.DASHSCOPE_API_KEY or settings.OPENAI_API_KEY
             )
             fact_extractor = FactExtractor(llm)
-            
+
             for file_path in request.file_paths:
                 if os.path.exists(file_path):
                     filename = Path(file_path).name
                     file_info, facts = await fact_extractor.extract_from_file(file_path, filename)
                     uploaded_files.append(file_info)
-                    
+
                     if facts:
                         if extracted_facts is None:
                             extracted_facts = facts
@@ -494,7 +546,9 @@ async def analyze_case(request: CyberJudgeRequest):
             session_id=session_id,
             role="assistant",
             content=content,
-            sources=assistant_sources
+            sources=assistant_sources,
+            related_laws=related_laws,
+            related_cases=related_cases
         )
 
         title = session.get("title")

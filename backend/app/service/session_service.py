@@ -160,6 +160,8 @@ class SessionService:
         role: str,
         content: str,
         sources: List[Dict[str, Any]] = None,
+        related_laws: List[Dict[str, Any]] = None,
+        related_cases: List[Dict[str, Any]] = None,
         timestamp: Optional[str] = None
     ) -> bool:
         """添加消息到会话"""
@@ -174,6 +176,8 @@ class SessionService:
             "role": role,
             "content": content,
             "sources": json.dumps(sources or []),
+            "related_laws": json.dumps(related_laws or []),
+            "related_cases": json.dumps(related_cases or []),
             "timestamp": timestamp or datetime.now().isoformat()
         }
         
@@ -216,7 +220,9 @@ class SessionService:
         messages = []
         for msg_json in messages_json:
             msg_data = json.loads(msg_json)
-            msg_data["sources"] = json.loads(msg_data["sources"])
+            msg_data["sources"] = json.loads(msg_data.get("sources") or "[]")
+            msg_data["related_laws"] = json.loads(msg_data.get("related_laws") or "[]")
+            msg_data["related_cases"] = json.loads(msg_data.get("related_cases") or "[]")
             messages.append(msg_data)
 
         logger.info(
