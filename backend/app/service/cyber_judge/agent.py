@@ -329,16 +329,18 @@ class CyberJudgeAgent:
             interrupt_before=["generate_response"]
         )
         response_context = self._prepare_response_context(preprocess_result)
-        content_parts: List[str] = []
 
-        async for chunk in self.llm.astream(response_context["messages"] + [HumanMessage(content=response_context["prompt"])]):
-            chunk_content = self._normalize_stream_chunk(getattr(chunk, "content", ""))
-            if not chunk_content:
-                continue
-            content_parts.append(chunk_content)
+        logger.info(
+            f"开始生成最终回答 - session_id: {state.get('session_id')}, cases: {len(response_context['related_cases'])}, laws: {len(response_context['related_laws'])}, law_details: {len(response_context['law_details'])}"
+        )
+        response = await self.llm.ainvoke(
+            response_context["messages"] + [HumanMessage(content=response_context["prompt"])]
+        )
+        final_content = self._normalize_stream_chunk(getattr(response, "content", ""))
+
+        for chunk_content in self._chunk_stream_content(final_content):
             yield chunk_content
 
-        final_content = "".join(content_parts)
         response_output = self._build_response_output(
             intent_type=response_context["intent_type"],
             content=final_content,
@@ -363,6 +365,12 @@ class CyberJudgeAgent:
             f"最终回答流式输出完成 - session_id: {state.get('session_id')}, response_length: {len(final_content)}"
         )
         yield payload
+
+    @staticmethod
+    def _chunk_stream_content(content: str, chunk_size: int = 80) -> List[str]:
+        if not content:
+            return []
+        return [content[index:index + chunk_size] for index in range(0, len(content), chunk_size)]
 
     @staticmethod
     def _normalize_stream_chunk(content: Any) -> str:

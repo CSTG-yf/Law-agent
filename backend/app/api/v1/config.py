@@ -55,7 +55,8 @@ def write_env_file(env_config: dict):
         f.writelines(lines)
 
 
-@router.get("/", response_model=EnvConfigResponse)
+@router.get("", response_model=EnvConfigResponse)
+@router.get("/", response_model=EnvConfigResponse, include_in_schema=False)
 async def get_config():
     try:
         logger.info("获取配置信息")
@@ -74,7 +75,8 @@ async def get_config():
         raise HTTPException(status_code=HttpStatus.INTERNAL_SERVER_ERROR, detail=f"Failed to read configuration: {str(e)}")
 
 
-@router.put("/", response_model=EnvConfigResponse)
+@router.put("", response_model=EnvConfigResponse)
+@router.put("/", response_model=EnvConfigResponse, include_in_schema=False)
 async def update_config(config_update: EnvConfigUpdate):
     try:
         logger.info(f"更新配置 - update_data: {config_update.model_dump(exclude_unset=True)}")

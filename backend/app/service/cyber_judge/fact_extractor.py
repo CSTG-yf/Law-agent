@@ -742,14 +742,20 @@ class FactExtractor:
                     uploaded_files=uploaded_files
                 )
                 self.log_keyword_plan(fallback_case, fallback_law)
-                case_keywords = self._combine_keywords(
-                    self._sanitize_keywords(result.get("case_keywords", []), fallback_case, for_law=False),
-                    fallback_case,
+                case_keywords = self._narrow_keywords(
+                    self._combine_keywords(
+                        self._sanitize_keywords(result.get("case_keywords", []), fallback_case, for_law=False),
+                        fallback_case,
+                        for_law=False
+                    ),
                     for_law=False
                 )
-                law_keywords = self._combine_keywords(
-                    self._sanitize_keywords(result.get("law_keywords", []), fallback_law, for_law=True),
-                    fallback_law,
+                law_keywords = self._narrow_keywords(
+                    self._combine_keywords(
+                        self._sanitize_keywords(result.get("law_keywords", []), fallback_law, for_law=True),
+                        fallback_law,
+                        for_law=True
+                    ),
                     for_law=True
                 )
 
@@ -775,11 +781,13 @@ class FactExtractor:
         uploaded_files: Optional[List[FileInfo]] = None
     ) -> tuple[List[str], List[str]]:
         case_keywords, law_keywords = self.build_search_keywords(query, extracted_facts, uploaded_files)
+        case_keywords = self._narrow_keywords(case_keywords, for_law=False)
+        law_keywords = self._narrow_keywords(law_keywords, for_law=True)
         if not case_keywords and query:
             case_keywords = [query[:12]]
         if not law_keywords:
             law_keywords = case_keywords[:]
-        return case_keywords[:5], law_keywords[:5]
+        return case_keywords[:3], law_keywords[:3]
 
     def _build_file_context(self, uploaded_files: List[FileInfo]) -> str:
         if not uploaded_files:
