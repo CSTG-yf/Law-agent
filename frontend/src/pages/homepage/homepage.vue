@@ -18,7 +18,6 @@ const userStore = useUserStore()
 const route = useRoute()
 const historyChatStore = useHistoryChatStore()
 const searchKeyword = ref('') //用于在会话列表中查找会话
-const selectedSession = ref('') //选中会话的ID
 const inputMessage = ref('') //搜索框输入的内容
 const selectedMode = ref('')//查找方式选择（智能搜索、rag）
 const selectedStrategy = ref<string>('')//rag检索模式
@@ -39,10 +38,10 @@ const showSessionList = ref(true) // 是否显示会话列表
 
 // 四种rag 搜素策略
 const strategys = ref<any[]>([
-  { name: 'vector向量检索', image: '/src/assets/plugin.svg' },
-  { name: 'hybrid混合检索', image: '/src/assets/plugin.svg' },
-  { name: 'mmr最大边际相关性检索', image: '/src/assets/plugin.svg' },
-  { name: 'multi_query多问题改写向量检索', image: '/src/assets/plugin.svg' }
+  { name: 'vector向量检索', value: 'vector', image: '/src/assets/plugin.svg' },
+  { name: 'hybrid混合检索', value: 'hybrid', image: '/src/assets/plugin.svg' },
+  { name: 'mmr最大边际相关性检索', value: 'mmr', image: '/src/assets/plugin.svg' },
+  { name: 'multi_query多问题改写向量检索', value: 'multi_query', image: '/src/assets/plugin.svg' },
 ])
 
 // 定义来源元数据接口
@@ -102,7 +101,6 @@ const openCreateSession = async () => {
   // 关闭下拉选择器
   showToolSelector.value = false
   showMcpSelector.value = false
-  selectedSession.value = ''
   messages.value = []
   currentSessionId.value = ''
   fetchSessions()
@@ -131,28 +129,6 @@ const fetchSessions = async () => {
       sessionsTotal.value = response.data.total
 
       console.log('对话列表获取成功:', sessions.value)
-
-      // // 如果会话列表不为空且当前路由是默认页面，立即自动打开第一个会话
-      // if (sessions.value.length > 0 && router.currentRoute.value.name === 'defaultPage') {
-      //   const firstSession = sessions.value[0]
-      //   console.log('立即自动打开第一个会话:', firstSession.sessionId, firstSession.name)
-
-      //   // 设置选中的会话
-      //   selectedSession.value = firstSession.sessionId
-
-      //   // 设置聊天store的状态
-      //   historyChatStore.sessionId = firstSession.sessionId
-      //   historyChatStore.name = firstSession.name
-      //   historyChatStore.logo = firstSession.logo
-
-      //   // 立即跳转到聊天页面
-      //   router.push({
-      //     path: '/conversation/chatPage',
-      //     query: {
-      //       session_id: firstSession.sessionId
-      //     }
-      //   })
-      // }
     } else {
       ElMessage.error(`获取对话列表失败: ${response.data.status_message}`)
     }
@@ -178,8 +154,8 @@ const deleteSession = async (session_id: string) => {
       })
       // 重新获取对话列表
       await fetchSessions()
-      if (selectedSession.value === session_id) {
-        selectedSession.value = ''
+      if (currentSessionId.value === session_id) {
+        currentSessionId.value = ''
       }
     } else {
       ElMessage.error(`删除会话失败: ${response.data.status_message}`)
@@ -218,6 +194,7 @@ const selectSession = async (session_id: string) => {
 
         // 重新获取会话列表
         await fetchSessions()
+        currentSessionId.value = session_id
 
         // 自动滚动到底部
         scrollToBottom()
@@ -241,6 +218,7 @@ const selectStrategy = (strategy: string) => {
     selectedStrategy.value = strategy
     selectedMode.value = 'rag'
   }
+  console.log(selectedStrategy.value)
   // 选择策略后关闭下拉菜单
   showToolSelector.value = false
 }
@@ -270,7 +248,7 @@ const toggleRagSearch = () => {
     selectedMode.value = 'rag'
     // 如果没有选择策略，默认选择第一个
     if (!selectedStrategy.value && strategys.value.length > 0) {
-      selectedStrategy.value = strategys.value[0].name
+      selectedStrategy.value = strategys.value[0].value
     }
   }
   console.log(selectedMode.value)
@@ -422,41 +400,14 @@ const handleSend = async () => {
         isGenerating.value = false  // 完成时解除生成状态
       }
     )
+
+    fetchSessions()
   } catch (e) {
     console.error('RAG 模式对话异常', e)
     ElMessage.error('对话异常')
     isGenerating.value = false  // 异常时解除生成状态
   }
 
-}
-
-// 加载会话历史
-const loadSessionHistory = async (sessionId: string) => {
-  try {
-    // 导入 API
-    const { getWorkspaceSessionsAPI } = await import('../../apis/workspace')
-    const response = await getWorkspaceSessionsAPI()
-
-    if (response.data.status_code === 200) {
-      const session = response.data.data.find((s: any) => s.session_id === sessionId)
-
-      if (session && session.contexts && Array.isArray(session.contexts)) {
-        // 将 contexts 转换为 messages 格式
-        messages.value = session.contexts.map((ctx: any) => [
-          { role: 'user' as const, content: ctx.query || '' },
-          { role: 'assistant' as const, content: ctx.answer || '' }
-        ]).flat().filter((msg: any) => msg.content) // 过滤掉空内容
-
-        console.log('已加载会话历史，消息数量:', messages.value.length)
-
-        // 加载历史后滚动到底部
-        scrollToBottom()
-      }
-    }
-  } catch (error) {
-    console.error('加载会话历史失败:', error)
-    ElMessage.error('加载会话历史失败')
-  }
 }
 
 // 键盘事件处理
@@ -515,21 +466,9 @@ onMounted(async () => {
   if (sessionId) {
     console.log('加载已有会话:', sessionId)
     currentSessionId.value = sessionId  // 设置当前会话ID
-    await loadSessionHistory(sessionId)
+    await selectSession(sessionId)
   }
 
-  // 懒加载 MCP 列表（用于选择）
-  // import('../../apis/mcp-server').then(async ({ getMCPServersAPI }) => {
-  //   try {
-  //     const res = await getMCPServersAPI()
-  //     if (res.data && res.data.status_code === 200 && Array.isArray(res.data.data)) {
-  //       mcpServers.value = res.data.data
-  //     }
-  //   } catch (e) {
-  //     console.error('加载 MCP 服务器失败', e)
-  //   }
-  // })
-  // document.addEventListener('click', handleClickOutside)
 })
 
 onBeforeUnmount(() => {
@@ -547,14 +486,8 @@ watch(
       // 清空当前消息
       messages.value = []
       // 加载新会话的历史
-      await loadSessionHistory(newSessionId as string)
+      await selectSession(newSessionId as string)
     }
-    // else if (!newSessionId && oldSessionId) {
-    //   // 如果从有session_id变为没有，生成新的session_id
-    //   currentSessionId.value = generateSessionId()
-    //   console.log('生成新会话ID:', currentSessionId.value)
-    //   messages.value = []
-    // }
   }
 )
 
@@ -608,7 +541,7 @@ watch(
         </div>
         <!-- 用 histortCard 渲染会话卡片 -->
         <histortCard v-for="session in sessions" :key="session.session_id" :item="session"
-          :class="{ active: selectedSession === session.session_id }" @select="selectSession(session.session_id)"
+          :class="{ active: currentSessionId === session.session_id }" @select="selectSession(session.session_id)"
           @delete="deleteSession(session.session_id)" />
       </div>
     </div>
@@ -753,8 +686,8 @@ watch(
                             <span class="empty-text">暂无可用 rag 方式</span>
                           </div>
                           <div v-for="strategy in strategys" :key="strategy.name"
-                            :class="['dropdown-item', { selected: selectedStrategy === strategy.name }]"
-                            @click="selectStrategy(strategy.name)">
+                            :class="['dropdown-item', { selected: selectedStrategy === strategy.value }]"
+                            @click="selectStrategy(strategy.value)">
                             <div class="item-left">
                             
                               <div class="item-content">

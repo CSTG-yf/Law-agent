@@ -1,71 +1,88 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from "element-plus"
 import { Expand, CirclePlusFilled, Fold } from '@element-plus/icons-vue'
-import histortCard from '../../components/historyCard/formfillHistortCard.vue'
-import { useHistoryChatStore } from "../../store/history_chat_msg"
+import { getAgentsAPI } from "../../apis/agent"
+import histortCard from '../../components/historyCard/cyberJudgeHistoryCard.vue'
 import { useRouter, useRoute } from 'vue-router'
+import { MdPreview } from "md-editor-v3"
 import "md-editor-v3/lib/style.css"
-import { getSessionListAPI, getFormFillSessionInfoAPI, deleteFormFillSessionAPI, startFormFillSessionAPI, getTemplateListAPI, sendMessageForFormFillAPI, getFormFillStatusAPI, updateSlotValueAPI, getFinalDocumentAPI, downloadDocumentAPI } from '../../apis/formfill'
-import type { formfillSession, block, formfillSessionDetail, formTemplate } from '../../type/formfill'
-import { useUserStore } from '@/store/user'
-import { template } from 'lodash'
-import labor_dispute from '@/components/formfill/labor_dispute.vue'
+import { getSessionListAPI, getSessionAPI, deleteSessionAPI, sendMessage ,uploadFile} from '../../apis/cyberJudge'
+import { useUserStore } from '../../store/user'
+import type { analyzepayload } from '../../apis/cyberJudge'
 
 const router = useRouter()
 const userStore = useUserStore()
 const route = useRoute()
-const historyChatStore = useHistoryChatStore()
 const searchKeyword = ref('') //用于在会话列表中查找会话
-const selectedSession = ref('') //选中会话的ID
 const inputMessage = ref('') //搜索框输入的内容
 const currentSessionId = ref<string>('')  // 当前会话ID
 const chatConversationRef = ref<HTMLElement | null>(null)  // 聊天容器引用
+const fileInputRef = ref<HTMLInputElement | null>(null)  // 文件输入引用
 const isGenerating = ref(false)  // 是否正在生成回复
+const rerank = ref(false) // 是否启用重排序
 const userId = computed(() => userStore.userInfo.user_id) // 用户ID，实际使用中应从用户状态获取
-const sessions = ref<formfillSession[]>([])// 会话列表List数据
+const sessions = ref<session[]>([]) // 会话列表，类型根据后端返回的数据结构定义
 const sessionsTotal = ref<number>(0) // 会话总数
-const loading = ref(false) //加载状态
-const messages = ref<formfillSessionDetail[]>([]) //当前会话消息列表
-const current_block = ref<string>('') // 当前模块
-const completion_rate = ref<number>(0) // 当前的完成度
-const blocks = ref<Record<string, any>>({}) // 所有模块的槽位信息
-const templates = ref<formTemplate[]>([]) // 模板列表
-const document_url = ref<string>('') //下载文档的URl
-const success = ref<boolean>(false) //文档是否可以下载 
+const loading = ref(false) // 是否正在加载会话列表
+const messages = ref<Array<message>>([]) // 消息列表，包含用户消息和AI回复，类型根据后端返回的数据结构定义
 const showSessionList = ref(true) // 是否显示会话列表
-const selectedTemplate = ref<string>('') //选中的模板
-const showFormFill = ref<boolean>(false) //是否显示表单填写界面
+//当前的sources列表
+const currentSources = ref<file[]>([])
+//需要上传的文件列表
+const Files = ref<File[]>([])
 
-// 打开创建对话框
-const openCreateSession = async () => {
-  inputMessage.value = ''
-  selectedSession.value = ''
-  messages.value = []
-  selectedTemplate.value = ''
-  showFormFill.value = false
-  document_url.value = ''
-  success.value = false
-  blocks.value = {}
-  completion_rate.value = 0
-  current_block.value = ''
-  isGenerating.value = false
-  currentSessionId.value = ''
-  await fetchSessions()
-  await fetchTemplate()
+
+interface session {
+  session_id: string
+  user_id: string
+  created_at: string
+  message_count: number
+  title: string
 }
 
-//切换收起会话列表 ok
+interface message {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp?: string
+  sources?: file[]
+}
+
+interface file {
+  file_id: string
+  file_name: string
+  file_type: string
+  file_path: string
+  file_size: number
+  upload_time: string
+}
+
+interface request{
+  message:string
+  session_id?:string
+  user_id:string
+  file_paths:string[]
+  stream:boolean
+  max_history:number
+}
+
+//切换收起会话列表
 const toggleSessionList = () => {
   showSessionList.value = !showSessionList.value
 }
 
-//切换显示表单填写界面 ok
-const toggleFormFill = () => {
-  showFormFill.value = !showFormFill.value
+
+// 打开创建对话框
+const openCreateSession = async () => {
+  inputMessage.value = ''              // 清空输入框
+  messages.value = []
+  currentSessionId.value = ''
+  currentSources.value = [] // 清空当前文件 sources
+  Files.value = [] // 清空上传文件列表
+  fetchSessions()
 }
 
-// 获取对话列表 ok
+// 获取对话列表
 const fetchSessions = async () => {
   try {
     loading.value = true
@@ -78,11 +95,10 @@ const fetchSessions = async () => {
       // 直接使用 sessions 数组
       sessions.value = response.data.data.sessions.map((item: any) => ({
         session_id: item.session_id,
-        template_type: item.template_type,
-        current_block: item.current_block,
-        conversation_turn: item.conversation_turn,
+        user_id: item.user_id, // 使用 session_id 作为显示名称
         created_at: item.created_at,
-        updated_at: item.updated_at,
+        message_count: item.message_count,
+        title: item.title
       }))
 
       sessionsTotal.value = response.data.total
@@ -99,51 +115,11 @@ const fetchSessions = async () => {
   }
 }
 
-
-// 选择会话查询当前会话的详情
-const selectSession = async (session_id: string) => {
-  try {
-    await openCreateSession()
-    
-    const response = await getFormFillSessionInfoAPI(session_id)
-    if (response.data.code === 200) {
-      console.log('查询某个会话得到的消息', response.data.data)
-
-      const sessionData = response.data.data
-      
-      if (sessionData) {
-        selectedTemplate.value = sessionData.template_type || ''
-        currentSessionId.value = sessionData.session_id || session_id
-        
-        if (sessionData.history && Array.isArray(sessionData.history)) {
-          messages.value = sessionData.history.map((msg: any) => ({
-            role: msg.role as 'user' | 'assistant',
-            message: msg.message || '',
-            timestamp: msg.timestamp,
-          }))
-        }
-        
-        console.log('已加载会话历史，消息数量:', messages.value.length)
-        console.log('消息详情:', messages.value)
-        console.log('当前模板:', selectedTemplate.value)
-        
-        await fetchFormFillStatus()
-        await fetchSessions()
-        scrollToBottom()
-      }
-    }
-
-  } catch (error) {
-    console.error('查询会话出错:', error)
-    ElMessage.error('查询会话失败，请检查网络连接')
-  }
-}
-
-// 删除会话 ok
+// 删除会话
 const deleteSession = async (session_id: string) => {
   console.log('删除会话被调用，session_id:', session_id)
   try {
-    const response = await deleteFormFillSessionAPI(session_id)
+    const response = await deleteSessionAPI(session_id)
     if (response.data.code === 200) {
       ElMessage({
         message: '会话删除成功',
@@ -153,8 +129,8 @@ const deleteSession = async (session_id: string) => {
       })
       // 重新获取对话列表
       await fetchSessions()
-      if (selectedSession.value === session_id) {
-        selectedSession.value = ''
+      if (currentSessionId.value === session_id) {
+        currentSessionId.value = ''
       }
     } else {
       ElMessage.error(`删除会话失败: ${response.data.status_message}`)
@@ -165,80 +141,54 @@ const deleteSession = async (session_id: string) => {
   }
 }
 
-//获取文书模板 ok
-const fetchTemplate = async () => {
+// 选择会话列表中的会话
+const selectSession = async (session_id: string) => {
+  // 更新当前会话ID
+  currentSessionId.value = session_id
   try {
-    const response = await getTemplateListAPI()
+    const response = await getSessionAPI(session_id)
     if (response.data.code === 200) {
-      console.log('获取模板列表成功:', response.data.data.templates)
+      console.log('查询某个会话得到的消息', response.data.data)
 
-      templates.value = response.data.data.templates.map((item: any) => ({
-        template_type: item.template_type,
-        template_name: item.template_name,
-        template_file: item.template_file,
-        block_count: item.block_count,
-      }))
+      // 替换当前 messages 内容为查询到的会话历史
+      if (response.data.data && response.data.data.messages && Array.isArray(response.data.data.messages)) {
+        // 直接使用后端返回的 messages 数组，保持完整的数据结构（包括 sources）
+        messages.value = response.data.data.messages.map((msg: any) => ({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content || '',
+          timestamp: msg.timestamp,
+          sources: msg.sources || [], //TODO: 处理 sources 字段
+        }))
 
-    } else {
-      ElMessage.error(`获取模板列表失败: ${response.data.status_message}`)
-      return []
+        console.log('已加载会话历史，消息数量:', messages.value.length)
+        console.log('消息详情:', messages.value)
+
+        //处理返回的sources信息 TODO: 处理 sources 字段
+        // currentSources.value = response.data.data.messages.sources.map((file:any) => ({
+        //   file_id: file.file_id,
+        //   file_name: file.file_name,
+        //   file_type: file.file_type,
+        //   file_path: file.file_path,
+        //   file_size: file.file_size,
+        //   upload_time: file.upload_time,
+        // }))
+
+        // 重新获取会话列表
+        await fetchSessions()
+
+        // 自动滚动到底部
+        scrollToBottom()
+      }
     }
+
   } catch (error) {
-    console.error('获取模板列表出错:', error)
-    ElMessage.error('获取模板列表失败，请检查网络连接')
-    return []
+    console.error('查询会话出错:', error)
+    ElMessage.error('查询会话失败，请检查网络连接')
   }
 }
 
-//选取文书模板开启对话 ok
-const selectTemplate = async (template_type: string, template_name?: string) => {
-  console.log('选择文书模板被调用，template_type:', template_type, 'template_name:', template_name)
-  try {
-    const response = await startFormFillSessionAPI( userId.value,template_type)
-    if (response.data.code === 200) {
-      currentSessionId.value = response.data.data.session_id
-      selectedTemplate.value = template_type
-      messages.value.push({ role: 'assistant' as const, message: response.data.data.message || '', timestamp: new Date().toISOString() })
-      await fetchSessions()
-      console.log('messages:', messages.value)
-      ElMessage.success('模板选择成功，开始填写文档')
-    } else {
-      ElMessage.error(`获取模板列表失败: ${response.data.status_message}`)
-    }
-  } catch (error) {
-    if (template_name) {
-      console.log('用户取消了模板选择')
-    } else {
-      console.error('获取模板列表出错:', error)
-      ElMessage.error('获取模板列表失败，请检查网络连接')
-    }
-  }
-}
-
-//根据选取的文档模板计算出文档模板组件名 ok
-const formfillComponent = computed(() => {
-  // 映射表：将后端的 template_type 字符串映射为 Vue 组件对象
-  const templateMap: Record<string, any> = {
-    'labor_dispute': labor_dispute,
-    // 'divorce': divorce_dispute, // 预留扩展
-  }
-
-  // 获取当前的模板标识符
-  // 优先取选中的模板，如果没有（比如刷新页面），则看当前会话的模板类型
-  const type = selectedTemplate.value || ''
-
-  // 返回对应的组件，如果没有匹配到，默认返回 labor_dispute 或 null
-  if (templateMap[type]) {
-    return templateMap[type]
-  }
-
-  // 回退逻辑：如果没有任何匹配，可以返回一个默认组件防止页面白屏
-  console.warn(`未找到类型为 [${type}] 的模板组件，已回退到默认模板`)
-  return labor_dispute 
-})
-
-// 发送消息 ok
-const handleSend = async () => {
+// 发送消息
+const handleSend = () => {
   if (!inputMessage.value.trim()) {
     ElMessage.warning('请输入消息内容')
     return
@@ -250,142 +200,129 @@ const handleSend = async () => {
   }
 
   const question = inputMessage.value.trim()
-
   console.log('query:', question)
   console.log('session_id:', currentSessionId.value)
 
+  inputMessage.value = ''
   isGenerating.value = true
+  messages.value.push({ role: 'user' as const, content: question })
 
-  console.log('将用户消息加入 messages')
-  messages.value.push({ role: 'user' as const, message: question, timestamp: new Date().toISOString() })
-
-  await nextTick()
   scrollToBottom()
 
-  //清空输入框内容
-  inputMessage.value = ''
+  const assistantMessage = { role: 'assistant' as const, content: '', timestamp: '' }
+  messages.value.push(assistantMessage)
 
-  try {
-    const response = await sendMessageForFormFillAPI(currentSessionId.value, question, userId.value)
-    console.log('API 完整响应:', response)
-    console.log('response.data:', response.data)
-    console.log('response.data.data:', response.data.data)
-    
-    if (response.data.code === 200) {
-      console.log('消息发送成功，后端响应:', response.data.data)
-      
-      const aiMessage = response.data.data.answer || response.data.data.message || response.data.data.response || ''
-      console.log('AI 回复内容:', aiMessage)
+  const payload: analyzepayload = {
+    message: question,
+    user_id: userId.value,
+    file_paths: currentSources.value.map((file:any) => file.file_path),
+    max_history: 20,
+    stream: true,
+  }
 
-      messages.value.push({ 
-        role: 'assistant' as const, 
-        message: aiMessage, 
-        timestamp: new Date().toISOString() 
+  if (currentSessionId.value) {
+    payload.session_id = currentSessionId.value
+  }
+
+  console.log('准备调用 sendMessage，payload:', payload)
+
+  sendMessage(payload)
+    .then((response: any) => {
+      response.data.on('data', (chunk: string) => {
+        const lines = chunk.toString().split('\n')
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') {
+              isGenerating.value = false
+              fetchSessions()
+              return
+            }
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.content) {
+                assistantMessage.content += parsed.content
+                scrollToBottom()
+              }
+            } catch (e) {
+              console.error('解析流式数据失败', e)
+            }
+          }
+        }
       })
 
-      console.log('添加 AI 消息后的 messages:', messages.value)
-      console.log('messages 长度:', messages.value.length)
+      response.data.on('end', () => {
+        isGenerating.value = false
+        fetchSessions()
+      })
 
-      await nextTick()
-
-      await fetchFormFillStatus()
-      await fetchSessions()
-
-      scrollToBottom()
+      response.data.on('error', (err: any) => {
+        console.error('流式响应错误', err)
+        ElMessage.error('对话异常')
+        isGenerating.value = false
+      })
+    })
+    .catch((e: any) => {
+      console.error('RAG 模式对话异常', e)
+      ElMessage.error('对话异常')
       isGenerating.value = false
-    } else {
-      isGenerating.value = false
-      ElMessage.error(`消息发送失败: ${response.data.status_message}`)
-    }
-
-  } catch (e) {
-    console.error('RAG 模式对话异常', e)
-    ElMessage.error('对话异常')
-    isGenerating.value = false
-  }
+    })
 }
 
-//获取当前填写状态
-const fetchFormFillStatus = async () => {
-  try {
-    const response = await getFormFillStatusAPI(currentSessionId.value)
+//上传多个文件
+const uploadFiles = async (files: File[]) => {
+  console.log('开始上传文件:', files)
+  for (const file of files) {
+    console.log('上传文件:', file)
+    const response = await uploadFile(file)
     if (response.data.code === 200) {
-      console.log('获取当前填写状态成功:', response.data.data)
-      const data = response.data.data
-      blocks.value = data.blocks || {}
-      completion_rate.value = data.overall_completion_rate || 0
-      current_block.value = data.current_block || ''
+      console.log('文件上传成功:', response.data.data)
+      // 将上传后的文件信息添加到 currentSources
+      currentSources.value.push({
+        file_id: response.data.data.file_id,
+        file_name: response.data.data.filename,
+        file_type: response.data.data.file_type,
+        file_path: response.data.data.file_path,
+        file_size: response.data.data.file_size,
+        upload_time: response.data.data.upload_time,
+      })
+      console.log('currentSources:', currentSources.value)
     } else {
-      ElMessage.error(`获取当前填写状态失败: ${response.data.status_message}`)
+      ElMessage.error(`文件上传失败: ${response.data.status_message}`)
     }
-  } catch (error) {
-    console.error('获取当前填写状态出错:', error)
-    ElMessage.error('获取当前填写状态失败，请检查网络连接')
   }
-}
-//手动更新槽位值 ok
-const updateSlotValue = async (block_id:string,slot_name:string,slot_value:string) =>{
-  blocks.value[slot_name] = slot_value
-  await nextTick()
-  try {
-    await updateSlotValueAPI(currentSessionId.value,block_id,slot_name,slot_value)
-    await fetchFormFillStatus()
-  } catch (error) {
-    console.error('更新槽位值出错:', error)
-    ElMessage.error('更新槽位值失败，请检查网络连接')
-  }
-}
+  console.log('currentSources:', currentSources.value)
+  ElMessage.success('所有文件上传成功')
+  // 上传文件完成之后，清空上传文件列表
+  Files.value = []
+} 
 
-
-
-//生成最终文档
-const generateForm = async () => {
-  try {
-    const response = await getFinalDocumentAPI(currentSessionId.value)
-    if (response.data.code === 200) {
-      if (response.data.data.success) {
-        success.value = true
-        document_url.value = response.data.data.document_url
-        ElMessage.success('文书生成成功')
-      } else {
-        ElMessage.error('文书生成失败，请稍后重试')
-      }
-
-    }
-  } catch (error) {
-    ElMessage.error('获取文书状态失败，请检查网络连接')
+// 文件选择变化处理，用户选择文件后， onFileChange 事件被触发，调用 uploadFiles 开始上传
+const onFileChange = (event: Event) => {
+  console.log('文件选择变化:', event)
+  const target = event.target as HTMLInputElement
+  if (target.files && target.files.length > 0) {
+    const filesArray = Array.from(target.files)
+    Files.value = filesArray
+    console.log('上传文件:', filesArray)
+    uploadFiles(filesArray)
+    // 清空input值，允许重复选择同一文件
+    target.value = ''
   }
 }
 
-//下载生成的文档
-const downloadDocument = async () => {
-  if (!success.value || !document_url.value) {
-    ElMessage.warning('文书尚未生成，请稍后')
-    return
-  }
-
-  try {
-    const response = await downloadDocumentAPI(currentSessionId.value)
-    if (response.data.code === 200) {
-      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `generated_document_${currentSessionId.value}.docx`)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-    } else {
-      ElMessage.error(`下载文书失败: ${response.data.status_message}`)
-    }
-  } catch (error) {
-    console.error('下载文书出错:', error)
-    ElMessage.error('下载文书失败，请检查网络连接')
-  }
+// 触发文件选择，浏览器弹出文件选择对话框
+const triggerFileInput = () => {
+  fileInputRef.value?.click()
 }
 
-// 键盘事件处理 ok
+// 移除已上传的文件
+const removeFile = (index: number) => {
+  currentSources.value.splice(index, 1)
+}
+
+
+// 键盘事件处理
 const handleKeydown = (event: KeyboardEvent) => {
   // 直接回车发送，Shift+Enter 换行
   if (event.key === 'Enter' && !event.shiftKey) {
@@ -397,7 +334,7 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
-// 自动滚动到底部 ok
+// 自动滚动到底部
 const scrollToBottom = () => {
   if (chatConversationRef.value) {
     setTimeout(() => {
@@ -408,7 +345,7 @@ const scrollToBottom = () => {
   }
 }
 
-// 头像加载错误处理 ok
+// 头像加载错误处理
 const handleAvatarError = (event: Event) => {
   const target = event.target as HTMLImageElement
   if (target) {
@@ -418,14 +355,13 @@ const handleAvatarError = (event: Event) => {
 
 
 onMounted(async () => {
-  await fetchSessions()
-  await fetchTemplate()
+  fetchSessions()
   // 检查是否有 session_id 参数，如果有则加载会话历史
   const sessionId = route.query.session_id as string
   if (sessionId) {
     console.log('加载已有会话:', sessionId)
     currentSessionId.value = sessionId  // 设置当前会话ID
-    await selectSession(sessionId)
+    await getSessionAPI(sessionId)
   }
 })
 
@@ -441,7 +377,7 @@ watch(
       // 清空当前消息
       messages.value = []
       // 加载新会话的历史
-      await fetchSessions()
+      await getSessionAPI(newSessionId as string)
     }
   }
 )
@@ -453,6 +389,7 @@ watch(
 
     <!-- 左侧边栏 -->
     <div class="sidebar" v-if="showSessionList">
+      <!-- 新建会话按钮 -->
       <div class="create-section">
         <button @click="openCreateSession" class="create-btn-native">
           <div class="btn-content">
@@ -494,16 +431,15 @@ watch(
           </div>
         </div>
         <!-- 用 histortCard 渲染会话卡片 -->
-        <histortCard v-for="formfillSession in sessions" :key="formfillSession.session_id" :item="formfillSession"
-          :class="{ active: selectedSession === formfillSession.session_id }"
-          @select="selectSession(formfillSession.session_id)" @delete="deleteSession(formfillSession.session_id)" />
+        <histortCard v-for="session in sessions" :key="session.session_id" :item="session"
+          :class="{ active: currentSessionId === session.session_id }" @select="selectSession(session.session_id)"
+          @delete="deleteSession(session.session_id)" />
       </div>
     </div>
 
     <!-- 右侧主体区域 -->
     <div class="content">
       <div class="chat-page" :class="{ 'chat-active': messages.length > 0 }">
-        <!-- 顶部操作按钮区域 -->
         <div v-if="!showSessionList" class="expand-create-section">
           <button @click="toggleSessionList" class="expand-btn-native">
             <div class="btn-content">
@@ -521,108 +457,87 @@ watch(
           </button>
         </div>
 
-        <div class="main-content">
-
-          <!-- 对话区 -->
-          <div class="main-content-left">
-            <div v-if="selectedTemplate" class="show-form-button">
-            <!-- <div class="show-form-button"> -->
-              <el-button @click="toggleFormFill" class="form-button">{{ showFormFill ? '收起文档' : '查看文档' }}</el-button>
-            </div>
-            <!-- 对话内容容器 - 占据剩余空间并支持滚动 -->
-            <div v-if="messages.length > 0" class="chat-conversation-container">
-              <div class="chat-conversation" ref="chatConversationRef">
-                <div v-for="(msg, idx) in messages" :key="idx" class="message-group">
-                  <!-- User Message -->
-                  <div v-if="msg.role === 'user'" class="user-message">
-                    <div class="message-content">
-                      <span>{{ msg.message }}</span>
-                    </div>
-                    <img :src="userStore.userInfo?.avatar || '/src/assets/user.svg'" alt="User Avatar" class="avatar"
-                      @error="handleAvatarError" />
-                  </div>
-
-                  <div v-if="msg.role === 'assistant'" class="ai-message">
-                    <img src="/src/assets/robot.svg" alt="AI Avatar" class="avatar" />
-                    <div class="message-content">
-                      <span>{{ msg.message }}</span>
-                    </div>
-                  </div>
+        <!-- 对话内容容器 - 占据剩余空间并支持滚动 -->
+        <div v-if="messages.length > 0" class="chat-conversation-container">
+          <div class="chat-conversation" ref="chatConversationRef">
+            <div v-for="(msg, idx) in messages" :key="idx" class="message-group">
+              <!-- User Message -->
+              <div v-if="msg.role === 'user'" class="user-message">
+                <div class="message-content">
+                  <span>{{ msg.content }}</span>
                 </div>
-              </div>
-            </div>
-
-            <!-- 底部区域（包含欢迎界面和输入框） -->
-            <div class="bottom-section">
-              <!-- 欢迎界面（无对话时显示） -->
-              <div v-if="!selectedTemplate" class="welcome-section">
-                <div class="avatar-wrapper">
-                  <img src="../../assets/robot.svg" alt="智言" class="avatar" />
-                </div>
-                <h1 class="welcome-title">在文档生成前请先选择模板</h1>
-
-                <!-- 展示各种模板 -->
-                <div class="template-list" v-if="!selectedTemplate">
-                  <div v-for="template in templates" :key="template.template_name" class="template-item"
-                    @click="selectTemplate(template.template_type, template.template_name)">
-                    <h3>{{ template.template_name }}</h3>
-                  </div>
-                </div>
-
+                <img :src="userStore.userInfo?.avatar || '/src/assets/user.svg'" alt="User Avatar" class="avatar"
+                  @error="handleAvatarError" />
               </div>
 
-              <!-- 输入区域（始终在底部） -->
-              <div class="input-section">
-                <div class="input-wrapper">
-                  <textarea v-model="inputMessage" placeholder="给智言发消息，让智言帮你完成任务~" class="message-input" rows="4"
-                    @keydown="handleKeydown"></textarea>
-
-                  <!-- 底部控制栏 -->
-                  <div class="input-footer">
-                    <div class="footer-left">
-                    </div>
-
-                    <div class="footer-right">
-                      <!-- 发送按钮 -->
-                      <button class="send-btn" :class="{ 'btn-disabled': isGenerating }" :disabled="isGenerating"
-                        @click="handleSend">
-                        <span v-if="!isGenerating && selectedTemplate">➤</span>
-                        <span v-else class="loading-spinner"></span>
-                      </button>
-                    </div>
+              <!-- AI Message -->
+              <div v-if="msg.role === 'assistant'" class="ai-message">
+                <img src="/src/assets/robot.svg" alt="AI Avatar" class="avatar" />
+                <div class="message-content">
+                  <!-- 加载转圈器 - 仅在内容为空且正在生成时显示 -->
+                  <div v-if="!msg.content && isGenerating && idx === messages.length - 1"
+                    class="loading-spinner-container">
+                    <div class="loading-spinner"></div>
+                    <span class="loading-text">AI 正在思考中...</span>
                   </div>
+                  <!-- 实际内容 - 有内容时显示 -->
+                  <MdPreview v-if="msg.content" :editorId="'workspace-ai-' + idx" :modelValue="msg.content" />
                 </div>
               </div>
-            </div>
-          </div>
-
-          <!-- 文档展示区 -->
-          <div class="main-content-right" v-if="showFormFill && formfillComponent">
-            <div class="document-section">
-              <!-- 动态调用模板组件 -->
-              <component :is="formfillComponent" :blocks="blocks"  @updateSlotValue="updateSlotValue"/>
-            </div>
-
-            <!-- <div class="document-download-section" v-if="success"> -->
-            <div class="document-download-section">
-              <div class="demo-progress">
-                <span class="current-progress">当前进度:</span>
-                <el-progress :text-inside="true" :stroke-width="26" :percentage="completion_rate*100"
-                  style="display: inline-block; vertical-align: middle; width: calc(100% - 80px);" />
-              </div>
-              <button class="download-btn" @click="generateForm">生成文书</button>
-              <!-- 在生成成功后显示包含 URL 的下载按钮 -->
-              <button 
-                v-if="success && document_url" 
-                class="download-url-btn" 
-                @click="downloadDocument">
-                {{ document_url }}
-              </button>
             </div>
           </div>
         </div>
 
+        <!-- 底部区域（包含欢迎界面和输入框） -->
+        <div class="bottom-section">
+          <!-- 欢迎界面（无对话时显示） -->
+          <div v-if="messages.length === 0" class="welcome-section">
+            <div class="avatar-wrapper">
+              <img src="../../assets/robot.svg" alt="智言" class="avatar" />
+            </div>
+            <h1 class="welcome-title">我是智言小助手，很高兴见到你！</h1>
+            <p class="welcome-subtitle">
+              欢迎体验智言灵寻 LingSeek，一位懂得完成复杂任务的 Agent 助理~
+            </p>
+          </div>
 
+          <!-- 输入区域（始终在底部） -->
+          <div class="input-section">
+            <!-- 已上传文件展示区域 -->
+            <div v-if="currentSources.length > 0" class="uploaded-files">
+              <div v-for="(file, index) in currentSources" :key="file.file_id" class="file-tag">
+                <span class="file-name">{{ file.file_name }}</span>
+                <span class="file-remove" @click="removeFile(index)">×</span>
+              </div>
+            </div>
+            <div class="input-wrapper">
+              <textarea v-model="inputMessage" placeholder="给智言发消息，让智言帮你完成任务~" class="message-input" rows="4"
+                @keydown="handleKeydown"></textarea>
+
+              <!-- 底部控制栏 -->
+              <div class="input-footer">
+                <div class="footer-left">
+
+                </div>
+
+                <div class="footer-right">
+                  <!-- 附件按钮 -->
+                  <button class="icon-btn" title="上传附件" @click="triggerFileInput">
+                    <img src="../../assets/upload.svg" alt="上传" class="upload-icon" />
+                  </button>
+                  <input type="file" ref="fileInputRef" class="hidden-file-input" multiple @change="onFileChange" />
+
+                  <!-- 发送按钮 -->
+                  <button class="send-btn" :class="{ 'btn-disabled': isGenerating }" :disabled="isGenerating"
+                    @click="handleSend">
+                    <span v-if="!isGenerating">➤</span>
+                    <span v-else class="loading-spinner"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -960,9 +875,9 @@ watch(
       overflow: hidden;
       flex: 1;
 
-      // &.chat-active {
-      //   background: linear-gradient(135deg, #f0f4ff 0%, #d9e8ff 100%);
-      // }
+      &.chat-active {
+        background: white;
+      }
 
       .expand-create-section {
         display: flex;
@@ -972,7 +887,7 @@ watch(
         padding: 16px;
         gap: 12px;
 
-        // 展开按钮样式优化
+        // 展开按钮样式
         .expand-btn-native {
           width: 36px;
           height: 36px;
@@ -1046,230 +961,18 @@ watch(
         }
 
       }
-
-      .main-content {
-        display: flex;
-        flex: 1;
-        overflow: hidden;
-
-        .main-content-left {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-          position: relative;
-          border-radius: 10px;
-          background-color: linear-gradient(135deg, #f0f4ff 0%, #d9e8ff 100%);
-
-          .show-form-button {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            z-index: 10;
-
-            .form-button {
-              /* 基础定位与尺寸 */
-              align-self: flex-start;
-              min-width: 90px;
-              /* 稍微增加一点宽度，让文字不那么拥挤 */
-              height: 36px;
-              padding: 0 16px;
-
-              /* 核心样式 */
-              background-color: #3b82f6;
-              /* 经典的克莱因蓝，很有科技感 */
-              color: #ffffff;
-              border: none;
-              border-radius: 8px;
-              /* 圆角是现代感的灵魂 */
-
-              /* 字体样式 */
-              font-size: 14px;
-              font-weight: 500;
-              cursor: pointer;
-
-              /* 动画过渡 */
-              transition: all 0.3s ease;
-
-              /* 微微的投影，增加层级感 */
-              box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-
-              /* 悬停效果 (Hover) */
-              &:hover {
-                background-color: #2563eb;
-                /* 颜色加深 */
-                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-                transform: translateY(-1px);
-                /* 轻轻向上浮动 */
-              }
-
-              /* 点击效果 (Active) */
-              &:active {
-                transform: translateY(0);
-                box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-              }
-            }
-          }
-
-        }
-
-        .main-content-right {
-          position: relative;
-          width: 50%;
-          height: 100%;
-          border-left: 1px solid #e9ecef;
-          padding: 0 20px;
-          display: flex;
-          flex-direction: column;
-
-          .document-section {
-            flex: 1;
-            overflow: auto;
-            background-color: #f5f5f5;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 80px;
-
-            &::-webkit-scrollbar {
-              width: 8px;
-              height: 8px;
-            }
-
-            &::-webkit-scrollbar-track {
-              background: #f1f1f1;
-              border-radius: 4px;
-            }
-
-            &::-webkit-scrollbar-thumb {
-              background: #888;
-              border-radius: 4px;
-
-              &:hover {
-                background: #555;
-              }
-            }
-          }
-
-          .document-download-section {
-            flex-shrink: 0;
-            padding: 15px 0;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-
-            .demo-progress {
-              display: flex;
-              justify-content: flex-start;
-              align-items: center;
-              width: 100%;
-
-              .current-progress {
-                width: 100px;
-              }
-            }
-
-            .download-btn {
-              /* 基础定位与尺寸 */
-              align-self: flex-start;
-              min-width: 90px;
-              /* 稍微增加一点宽度，让文字不那么拥挤 */
-              height: 36px;
-              padding: 0 16px;
-
-              /* 核心样式 */
-              background-color: #3b82f6;
-              /* 经典的克莱因蓝，很有科技感 */
-              color: #ffffff;
-              border: none;
-              border-radius: 8px;
-              /* 圆角是现代感的灵魂 */
-
-              /* 字体样式 */
-              font-size: 14px;
-              font-weight: 500;
-              cursor: pointer;
-
-              /* 动画过渡 */
-              transition: all 0.3s ease;
-
-              /* 微微的投影，增加层级感 */
-              box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-
-              /* 悬停效果 (Hover) */
-              &:hover {
-                background-color: #2563eb;
-                /* 颜色加深 */
-                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-                transform: translateY(-1px);
-                /* 轻轻向上浮动 */
-              }
-
-              /* 点击效果 (Active) */
-              &:active {
-                transform: translateY(0);
-                box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-              }
-            }
-
-            .download-url-btn {
-              /* 基础定位与尺寸 */
-              align-self: flex-start;
-              min-width: 200px;
-              max-width: 100%;
-              height: 36px;
-              padding: 0 16px;
-
-              /* 核心样式 - 成功绿色 */
-              background-color: #10b981;
-              color: #ffffff;
-              border: none;
-              border-radius: 8px;
-
-              /* 字体样式 */
-              font-size: 13px;
-              font-weight: 500;
-              cursor: pointer;
-              text-overflow: ellipsis;
-              overflow: hidden;
-              white-space: nowrap;
-
-              /* 动画过渡 */
-              transition: all 0.3s ease;
-
-              /* 微微的投影，增加层级感 */
-              box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
-
-              margin-top: 8px;
-
-              /* 悬停效果 (Hover) */
-              &:hover {
-                background-color: #059669;
-                box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-                transform: translateY(-1px);
-              }
-
-              /* 点击效果 (Active) */
-              &:active {
-                transform: translateY(0);
-                box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
-              }
-            }
-          }
-        }
-      }
     }
+
+
+
 
     .chat-conversation-container {
       flex: 1;
       min-height: 0;
-      /* 只在对话区域出现滚动条 */
       overflow-y: auto;
       overflow-x: hidden;
-      // background-color: #f7f8fa;
-      /* 为左右两侧保留空隙，且使用 box-sizing 避免宽度溢出 */
       padding: 18px 16px;
       box-sizing: border-box;
-      top:40px;
 
       &::-webkit-scrollbar {
         width: 6px;
@@ -1282,14 +985,14 @@ watch(
         margin: 4px 0;
       }
 
-      // &::-webkit-scrollbar-thumb {
-      //   background: rgba(193, 199, 208, 0.6);
-      //   border-radius: 3px;
+      &::-webkit-scrollbar-thumb {
+        background: rgba(193, 199, 208, 0.6);
+        border-radius: 3px;
 
-      //   &:hover {
-      //     background: rgba(168, 176, 188, 0.8);
-      //   }
-      // }
+        &:hover {
+          background: rgba(168, 176, 188, 0.8);
+        }
+      }
     }
 
     .chat-conversation {
@@ -1314,12 +1017,18 @@ watch(
       border-top: 1px solid #e9ecef;
       flex-shrink: 0;
       width: 100%;
+      background: white;
     }
 
     .welcome-section {
+      flex: 1;
       text-align: center;
       padding: 60px 20px;
       animation: fadeInUp 0.6s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
 
       .avatar-wrapper {
         margin-bottom: 20px;
@@ -1362,38 +1071,53 @@ watch(
       }
 
       .template-list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 16px;
         max-width: 800px;
         margin: 30px auto 0;
         padding: 0 20px;
-        justify-content: center;
 
         .template-item {
-          background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-          border: 1px solid #e5e7eb;
-          border-radius: 24px;
-          padding: 10px 20px;
+          background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          padding: 24px 20px;
           cursor: pointer;
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
           text-align: center;
-          font-size: 14px;
-          color: #4b5563;
-          font-weight: 500;
-          white-space: nowrap;
 
           &:hover {
-            border-color: #667eea;
-            color: #667eea;
-            background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            border-color: #3b82f6;
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(59, 130, 246, 0.2);
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
           }
 
           &:active {
-            transform: translateY(0);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+          }
+
+          .template-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+          }
+
+          h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 0 0 8px 0;
+            line-height: 1.4;
+          }
+
+          .template-desc {
+            font-size: 13px;
+            color: #6b7280;
+            margin: 0;
           }
         }
       }
@@ -1529,15 +1253,50 @@ watch(
     .input-section {
       width: 100%;
       max-width: 100%;
-      margin: 0;
+      margin: 0 auto;
       padding: 10px;
       animation: fadeInUp 0.6s ease 0.2s both;
+      box-sizing: border-box;
 
-      // 响应式适配
-      @media (min-width: 769px) {
+      .uploaded-files {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 16px;
         max-width: 1200px;
-        margin: 0 auto;
-        padding: 15px;
+        margin-left: auto;
+        margin-right: auto;
+
+        .file-tag {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 10px;
+          background-color: #e8f4ff;
+          border: 1px solid #4B8EE6;
+          border-radius: 6px;
+          font-size: 12px;
+          color: #4B8EE6;
+
+          .file-name {
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .file-remove {
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            color: #4B8EE6;
+            line-height: 1;
+
+            &:hover {
+              color: #2563eb;
+            }
+          }
+        }
       }
 
       .input-wrapper {
@@ -1547,6 +1306,9 @@ watch(
         margin: 12px 16px;
         transition: all 0.3s ease;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+        max-width: 1200px;
+        margin-left: auto;
+        margin-right: auto;
         position: relative;
         z-index: 1;
 
@@ -1563,8 +1325,8 @@ watch(
 
         .message-input {
           position: relative;
-          top: 5px;
-          left: 5px;
+          top:5px;
+          left:5px;
           width: 100%;
           border: none;
           background: transparent;
@@ -1589,44 +1351,110 @@ watch(
 
           .footer-left {
             display: flex;
-            gap: 10px;
+            gap: 12px;
+            align-items: center;
 
             .selector-dropdown {
               position: relative;
+            }
+
+            .rerank-btn {
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              padding: 6px 12px;
+              background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+              border: 1px solid #e5e7eb;
+              border-radius: 20px;
+              font-size: 12px;
+              color: #6b7280;
+              cursor: pointer;
+              transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+              .rerank-icon {
+                font-size: 14px;
+              }
+
+              .rerank-text {
+                font-weight: 500;
+                font-size: 12px;
+                white-space: nowrap;
+                user-select: none;
+              }
+
+              &:hover {
+                border-color: #667eea;
+                background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+                color: #667eea;
+                transform: translateY(-1px);
+                box-shadow: 0 3px 8px rgba(102, 126, 234, 0.15);
+              }
+
+              &:active {
+                transform: scale(0.98);
+              }
+
+              &.active {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-color: #667eea;
+                color: white;
+                box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+                transform: translateY(-1px);
+
+                .rerank-icon {
+                  animation: spin 1s linear infinite;
+                }
+              }
+            }
+
+            @keyframes spin {
+              from {
+                transform: rotate(0deg);
+              }
+              to {
+                transform: rotate(360deg);
+              }
+            }
+
+            .selector-dropdown {
 
               .selector-item {
                 display: flex;
                 align-items: center;
-                gap: 8px;
-                padding: 8px 14px;
-                background: #f8f9fa;
+                gap: 6px;
+                padding: 6px 12px;
+                background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
                 border: 1px solid #e5e7eb;
-                border-radius: 8px;
+                border-radius: 20px;
                 font-size: 13px;
-                color: #4b5563;
+                color: #6b7280;
                 cursor: pointer;
-                transition: all 0.2s ease;
+                transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
                 user-select: none;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 
                 .selector-icon {
-                  font-size: 16px;
+                  font-size: 14px;
                 }
 
                 .selector-icon-img {
-                  width: 20px;
-                  height: 20px;
+                  width: 16px;
+                  height: 16px;
                   object-fit: contain;
                   display: inline-block;
                 }
 
                 .selector-text {
                   font-weight: 500;
+                  font-size: 12px;
                 }
 
                 .selector-arrow {
                   font-size: 10px;
-                  opacity: 0.5;
+                  opacity: 0.4;
                   transition: transform 0.2s ease;
+                  margin-left: 2px;
                 }
 
                 &.open {
@@ -1636,22 +1464,30 @@ watch(
                 }
 
                 .selector-check {
-                  font-size: 14px;
+                  font-size: 12px;
                   color: #667eea;
                   font-weight: 600;
                 }
 
                 &:hover {
                   border-color: #667eea;
-                  background: #f0f4ff;
+                  background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
                   color: #667eea;
+                  transform: translateY(-1px);
+                  box-shadow: 0 3px 8px rgba(102, 126, 234, 0.15);
                 }
 
                 &.active {
-                  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                   border-color: #667eea;
-                  color: #667eea;
-                  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.15);
+                  color: white;
+                  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+                  transform: translateY(-1px);
+
+                  .selector-arrow {
+                    opacity: 0.7;
+                    color: white;
+                  }
                 }
 
                 &:active {
@@ -1661,13 +1497,14 @@ watch(
 
               .dropdown-menu {
                 position: absolute;
-                bottom: calc(100% + 8px);
-                left: 0;
+                bottom: calc(100% + 10px);
+                left: 50%;
+                transform: translateX(-50%);
                 min-width: 200px;
                 background: white;
                 border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.15);
+                border-radius: 14px;
+                box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.12);
                 z-index: 1000;
                 max-height: 320px;
                 overflow: hidden;
@@ -1675,11 +1512,10 @@ watch(
                 flex-direction: column;
 
                 &.tool-menu {
-                  min-width: 360px;
-                  max-height: 450px;
+                  min-width: 320px;
+                  max-height: 400px;
                 }
 
-                // 模型下拉尺寸与rag列表保持一致
                 &.model-menu {
                   min-width: 180px;
                   max-height: 450px;
@@ -1699,9 +1535,10 @@ watch(
                   display: flex;
                   justify-content: space-between;
                   align-items: center;
-                  padding: 12px 16px;
+                  padding: 14px 16px;
                   background: linear-gradient(135deg, #f8f9fa 0%, #f0f2f5 100%);
                   border-bottom: 1px solid #e5e7eb;
+                  border-radius: 14px 14px 0 0;
 
                   .header-title {
                     font-size: 14px;
@@ -1991,9 +1828,9 @@ watch(
             }
 
             .send-btn {
-              position: relative;
-              right: 4px;
-              bottom: 4px;
+              position:relative;
+              right:4px;
+              bottom:4px;
               width: 36px;
               height: 36px;
               display: flex;
@@ -2281,58 +2118,7 @@ watch(
       left: 2px;
       top: 2px;
     }
-  }
-}
-</style>
 
-<style lang="scss">
-.template-confirm-dialog {
-  .el-message-box {
-    border-radius: 12px !important;
-    padding: 20px !important;
-
-    .el-message-box__header {
-      padding-bottom: 15px;
-
-      .el-message-box__title {
-        font-size: 18px !important;
-        font-weight: 600 !important;
-        color: #1f2937 !important;
-      }
-    }
-
-    .el-message-box__content {
-      padding: 15px 0;
-
-      .el-message-box__message {
-        font-size: 15px !important;
-        color: #4b5563 !important;
-        line-height: 1.6 !important;
-      }
-    }
-
-    .el-message-box__btns {
-      padding-top: 15px;
-
-      .el-button--primary {
-        background-color: #3b82f6 !important;
-        border-color: #3b82f6 !important;
-        border-radius: 8px !important;
-        padding: 10px 24px !important;
-        font-weight: 500 !important;
-
-        &:hover {
-          background-color: #2563eb !important;
-          border-color: #2563eb !important;
-        }
-      }
-
-      .el-button--default {
-        border-radius: 8px !important;
-        padding: 10px 24px !important;
-        font-weight: 500 !important;
-      }
-    }
   }
 }
 </style>

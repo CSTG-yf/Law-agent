@@ -6,7 +6,7 @@ import axios from 'axios'
 
 const request = axios.create({
     baseURL: import.meta.env.VITE_API_BASE_URL || '',
-    timeout: 10000  // 全局超时 10 秒，对于耗时操作单独设置
+    timeout: 60000  // 全局超时 10 秒，对于耗时操作单独设置
 })
 
 // 添加请求拦截器

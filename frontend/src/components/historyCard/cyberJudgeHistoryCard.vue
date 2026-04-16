@@ -1,15 +1,24 @@
 <script lang="ts" setup>
 import { computed } from "vue"
-import { formfillSession } from "../../type/formfill"
 
 const emits = defineEmits<{
     (event:'delete'):void
     (event:'select'):void
 }>();
 
+interface cyberJudgeSession {
+  session_id: string;        // 会话 ID，例如：filling-labor_dispute-4d55b923aa65
+  user_id: string;           // 用户 ID，例如：user-12345678901234567890123456789012
+  created_at: string;        // 创建时间，ISO 8601 格式，例如：2026-03-30T18:30:00
+  message_count: number;      // 消息数量
+  title: string;              // 会话标题，例如：劳动争议分析
+}
+
+
 const props = defineProps<{
-    item:formfillSession
+    item:cyberJudgeSession
 }>();
+
 
 // 格式化时间显示
 const formattedTime = computed(() => {
@@ -45,14 +54,6 @@ const selectCard = () => {
   console.log('【historyCard】点击了会话卡片，item:', props.item)
   emits('select')
 }
-
-// 模板类型映射
-const templateTypeName = computed(() => {
-  const typeMap: Record<string, string> = {
-    'labor_dispute': '劳务合同'
-  }
-  return typeMap[props.item.template_type] || props.item.template_type
-})
 </script>
 
 <template>
@@ -65,8 +66,8 @@ const templateTypeName = computed(() => {
           <img :src="props.item.logo || '/default-avatar.png'" alt="" />
         </div> -->
         <div class="content">
-          <div class="title" :title="templateTypeName">
-            {{ templateTypeName }}
+          <div class="title" :title="props.item.title">
+            {{ props.item.title }}
           </div>
         </div>
       </div>

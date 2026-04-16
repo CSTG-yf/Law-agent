@@ -123,7 +123,8 @@ const goCurrent = (item: string) => {
     "model": "/model",
     "workspace": "/workspace",
     "dashboard": "/dashboard",
-    "prompt": "/prompt"
+    "prompt": "/prompt",
+    "cyberJudge": "/cyberJudge"
   }
 
   router.push(routes[item] || "/")
@@ -241,6 +242,14 @@ watch(
                   <img src="../assets/formfill.svg" width="22px" height="22px" />
                 </el-icon>
                 <span>文书填写</span>
+              </template>
+            </el-menu-item>
+            <el-menu-item index="cyberJudge" @click="goCurrent('cyberJudge')">
+              <template #title>
+                <el-icon>
+                  <img src="../assets/cyberJudge.svg" width="22px" height="22px" />
+                </el-icon>
+                <span>案件分析</span>
               </template>
             </el-menu-item>
             <el-menu-item index="knowledge" @click="goCurrent('knowledge')">

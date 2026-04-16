@@ -1,51 +1,10 @@
 <template>
   <div class="dashboard-container">
-    <div class="dashboard-header">
-      <div class="title-wrap">
-        <h2>系统配置</h2>
-      </div>
-      <p class="sub">选择合适的模型并对模型进行测试</p>
-    </div>
+    
 
-    <!-- <div class="filters-container">
-      <div class="filter-group">
-        <label>模型</label>
-        <el-select v-model="filters.model" placeholder="全部模型" clearable filterable size="default"
-          popper-class="dashboard-select-popper" class="filter-select" @change="handleFilterChange"
-          style="width: 250px">
-          <el-option label="全部" value="" />
-          <el-option v-for="model in modelsList" :key="model" :label="model" :value="model" />
-        </el-select>
-      </div>
-
-      <div class="filter-group">
-        <label>智能体</label>
-        <el-select v-model="filters.agent" placeholder="全部智能体" clearable filterable size="default"
-          popper-class="dashboard-select-popper" class="filter-select" @change="handleFilterChange"
-          style="width: 250px">
-          <el-option label="全部" value="" />
-          <el-option v-for="agent in agentsList" :key="agent" :label="agent" :value="agent" />
-        </el-select>
-      </div>
-
-      <div class="filter-group">
-        <label>时间范围</label>
-        <el-select v-model="filters.delta_days" size="default" popper-class="dashboard-select-popper"
-          class="filter-select" @change="handleFilterChange" style="width: 220px">
-          <el-option label="周内" :value="7" />
-          <el-option label="月内" :value="30" />
-          <el-option label="年内" :value="365" />
-          <el-option label="全部" :value="10000" />
-        </el-select>
-      </div>
-
-      <el-button type="primary" class="filter-action" :icon="RefreshRight" @click="handleRefresh" :loading="loading">
-        刷新数据
-      </el-button>
-    </div> -->
-
-    <!-- 系统配置表单 -->
-    <div class="config-form-container" v-loading="configLoading">
+    <div class="dashboard-content">
+      <!-- 左侧配置表单 -->
+      <div class="config-form-container" v-loading="configLoading">
       <div class="config-form-header">
         <h3>系统配置</h3>
         <span class="config-desc">配置模型参数和 RAG 检索参数</span>
@@ -55,7 +14,7 @@
         <!-- API 配置 -->
         <el-divider content-position="left">API 配置</el-divider>
         
-        <el-form-item label="OpenAI Base URL">
+        <el-form-item label="OpenAI 基础 URL">
           <el-input 
             v-model="configForm.OPENAI_BASE_URL" 
             placeholder="请输入 OpenAI API 基础 URL"
@@ -63,7 +22,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="OpenAI API Key">
+        <el-form-item label="OpenAI API 密钥">
           <el-input 
             v-model="configForm.OPENAI_API_KEY" 
             type="password"
@@ -73,7 +32,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="DashScope API Key">
+        <el-form-item label="DashScope API 密钥">
           <el-input 
             v-model="configForm.DASHSCOPE_API_KEY" 
             type="password"
@@ -83,7 +42,7 @@
           />
         </el-form-item>
 
-        <el-form-item label="Hugging Face Token">
+        <el-form-item label="Hugging Face 令牌">
           <el-input 
             v-model="configForm.HF_TOKEN" 
             type="password"
@@ -103,6 +62,36 @@
             @input="handleConfigChange"
           />
         </el-form-item>
+
+        <!-- 知识图谱配置 -->
+         <el-divider content-position="left">知识图谱配置</el-divider>
+
+        <el-form-item label="知识图谱名称">
+          <el-input 
+            v-model="configForm.GRAPH_MODEL_NAME" 
+            placeholder="请输入 GRAPH_MODEL_NAME"
+            @input="handleConfigChange"
+          />
+        </el-form-item>
+
+        <el-form-item label="是否启用严格模式">
+          <el-switch 
+            v-model="configForm.GRAPH_STRICT_MODE" 
+            @change="handleConfigChange"
+          />
+        </el-form-item>
+
+        <el-form-item label="知识图谱提取时单个文本块的最大字符数">
+          <el-input-number 
+            v-model="configForm.GRAPH_MAX_CHUNK_SIZE" 
+            :min="0"
+            :max="100000000"
+            :step="1"
+            controls-position="right"
+            @change="handleConfigChange"
+          />
+        </el-form-item>
+
 
         <!-- RAG 配置 -->
         <el-divider content-position="left">RAG 检索配置</el-divider>
@@ -168,8 +157,82 @@
         </el-form-item>
       </el-form>
     </div>
+    </div>
 
-    <!-- 模型测试对话框 (自定义 div 实现) -->
+    <!-- 右侧对话测试面板 -->
+    <div v-if="showTestPanel" class="test-panel">
+      <div class="test-panel-header">
+        <span class="panel-title">模型测试</span>
+        <el-icon class="close-icon" @click="closeTestPanel"><Close /></el-icon>
+      </div>
+      
+      <div class="test-panel-body">
+        <div v-loading="testing" class="test-content">
+          <div v-if="!testing && testResult" class="test-result">
+            <div class="result-item success" v-if="testResult.success">
+              <el-icon class="result-icon" color="#67C23A"><SuccessFilled /></el-icon>
+              <span class="result-text">测试成功</span>
+            </div>
+            <div v-else class="result-item error">
+              <el-icon class="result-icon" color="#F56C6C"><CircleCloseFilled /></el-icon>
+              <span class="result-text">测试失败</span>
+            </div>
+
+          </div>
+
+          <div v-else-if="testing" class="testing-tip">
+            <el-icon class="loading-icon"><Loading /></el-icon>
+            <span>正在测试模型配置，请稍候...</span>
+          </div>
+
+          <div v-else class="initial-tip">
+            <el-icon class="tip-icon"><Promotion /></el-icon>
+            <span>可以在下方发送消息测试模型</span>
+          </div>
+        </div>
+
+        <!-- 对话区域 -->
+        <div class="chat-area">
+          <div class="chat-messages">
+            <div 
+              v-for="(msg, index) in chatMessages" 
+              :key="index" 
+              class="chat-message"
+              :class="{ 'user': msg.role === 'user', 'assistant': msg.role === 'assistant', 'error': msg.isError }"
+            >
+              <div class="message-content">{{ msg.content }}</div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <el-input
+              v-model="chatInput"
+              placeholder="请输入测试消息..."
+              @keyup.enter="handleSendMessage"
+              :disabled="chatLoading"
+            />
+            <el-button 
+              type="primary" 
+              @click="handleSendMessage" 
+              :loading="chatLoading"
+              :disabled="!chatInput.trim()"
+            >
+              发送
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <div class="test-panel-footer">
+        <el-button @click="closeTestPanel" :disabled="testing || chatLoading">
+          关闭
+        </el-button>
+        <el-button type="primary" @click="handleReTest" :loading="testing">
+          {{ testing ? '测试中...' : '重新测试' }}
+        </el-button>
+      </div>
+    </div>
+
+    <!-- 模型测试对话框 (保留以备后用) -->
     <div v-if="showTestDialog" class="custom-dialog-overlay" @click.self="showTestDialog = false">
       <div class="custom-dialog">
         <div class="custom-dialog-header">
@@ -211,6 +274,11 @@
               <el-icon class="loading-icon"><Loading /></el-icon>
               <span>正在测试模型配置，请稍候...</span>
             </div>
+
+            <div v-else class="initial-tip">
+              <el-icon class="tip-icon"><Promotion /></el-icon>
+              <span>点击下方"开始测试"按钮测试模型配置</span>
+            </div>
           </div>
         </div>
 
@@ -219,7 +287,7 @@
             {{ testing ? '测试中...' : '关闭' }}
           </el-button>
           <el-button type="primary" @click="handleTestModel" :loading="testing">
-            {{ testing ? '测试中...' : '重新测试' }}
+            {{ testing ? '测试中...' : (testResult ? '重新测试' : '开始测试') }}
           </el-button>
         </div>
       </div>
@@ -230,7 +298,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { RefreshRight, SuccessFilled, CircleCloseFilled, Loading, Close } from '@element-plus/icons-vue'
+import { RefreshRight, SuccessFilled, CircleCloseFilled, Loading, Close, Promotion } from '@element-plus/icons-vue'
 // 按需引入 ECharts，避免打包体积和解析问题
 import * as echarts from 'echarts/core'
 import type { ECharts as EChartsInstance } from 'echarts/core'
@@ -249,41 +317,6 @@ import {
 } from '../../apis/usage-stats'
 import { getConfigAPI, updateConfigAPI, testModelAPI } from '../../apis/configuration'
 
-// 筛选条件
-// const filters = ref<UsageStatsRequest>({
-//   model: '',
-//   agent: '',
-//   delta_days: 10000
-// })
-
-// // 数据列表
-// const modelsList = ref<string[]>([])
-// const agentsList = ref<string[]>([])
-
-// // 加载状态
-// const loading = ref(false)
-
-// // 图表引用
-// const callCountChartRef = ref<HTMLElement | null>(null)
-// const tokenUsageChartRef = ref<HTMLElement | null>(null)
-
-// // 图表实例
-// let callCountChart: EChartsInstance | null = null
-// let tokenUsageChart: EChartsInstance | null = null
-
-// // KPI 与空数据状态
-// const totalCalls = ref(0)
-// const totalTokens = ref(0)
-// const hasCallCountData = ref(true)
-// const hasTokenUsageData = ref(true)
-// const periodText = computed(() => {
-//   const d = Number(filters.value.delta_days || 10000)
-//   if (d === 7) return '近 7 天'
-//   if (d === 30) return '近 30 天'
-//   if (d === 365) return '近一年'
-//   return '全部时间'
-// })
-
 // ========== 系统配置相关 ==========
 // 配置表单数据
 interface ConfigForm {
@@ -296,18 +329,25 @@ interface ConfigForm {
   RAG_FETCH_K: number
   PRE_RETRIEVE_TOP_K: number
   MAX_HISTORY_LENGTH: number
+  GRAPH_MODEL_NAME: string
+  GRAPH_STRICT_MODE: boolean
+  GRAPH_MAX_CHUNK_SIZE: number
 }
 
+// 配置表单数据
 const configForm = reactive<ConfigForm>({
   OPENAI_BASE_URL: '',
   OPENAI_API_KEY: '',
   DASHSCOPE_API_KEY: '',
   HF_TOKEN: '',
   MODEL_NAME: '',
-  RAG_TOP_K: 5,
-  RAG_FETCH_K: 20,
-  PRE_RETRIEVE_TOP_K: 5,
-  MAX_HISTORY_LENGTH: 10
+  RAG_TOP_K: 0,
+  RAG_FETCH_K: 0,
+  PRE_RETRIEVE_TOP_K: 0,
+  MAX_HISTORY_LENGTH: 0,
+  GRAPH_MODEL_NAME: '',
+  GRAPH_STRICT_MODE: false,
+  GRAPH_MAX_CHUNK_SIZE: 0
 })
 
 // 保存原始配置用于对比
@@ -317,18 +357,22 @@ const originalConfig = reactive<ConfigForm>({
   DASHSCOPE_API_KEY: '',
   HF_TOKEN: '',
   MODEL_NAME: '',
-  RAG_TOP_K: 5,
-  RAG_FETCH_K: 20,
-  PRE_RETRIEVE_TOP_K: 5,
-  MAX_HISTORY_LENGTH: 10
+  RAG_TOP_K: 0,
+  RAG_FETCH_K: 0,
+  PRE_RETRIEVE_TOP_K: 0,
+  MAX_HISTORY_LENGTH: 0,
+  GRAPH_MODEL_NAME: '',
+  GRAPH_STRICT_MODE: false,
+  GRAPH_MAX_CHUNK_SIZE: 0
 })
 
 const configLoading = ref(false)
 const saving = ref(false)
 
 // 模型测试对话框控制
-const showTestDialog = ref(false)
-const testing = ref(false)
+const showTestDialog = ref(false) // 是否显示测试对话框
+const showTestPanel = ref(false) // 是否显示右侧测试面板
+const testing = ref(false) // 是否正在测试
 const testResult = ref<{
   success: boolean
   model?: string
@@ -336,6 +380,99 @@ const testResult = ref<{
   original_message?: string
   error?: string
 } | null>(null)
+
+// 对话测试相关
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  isError?: boolean
+}
+
+const chatMessages = ref<ChatMessage[]>([])
+const chatInput = ref('')
+const chatLoading = ref(false)
+
+// 发送消息测试
+const handleSendMessage = async () => {
+  const message = chatInput.value.trim()
+  if (!message || chatLoading.value) return
+
+  chatMessages.value.push({ role: 'user', content: message })
+  chatInput.value = ''
+  chatLoading.value = true
+
+  try {
+    const response = await testModelAPI({ message })
+    
+    if (response.data.code === 200) {
+      chatMessages.value.push({ 
+        role: 'assistant', 
+        content: response.data.data.response || '无回复' 
+      })
+    } else {
+      chatMessages.value.push({ 
+        role: 'assistant', 
+        content: response.data.message || '模型测试失败',
+        isError: true 
+      })
+    }
+  } catch (error: any) {
+    console.error('模型测试失败:', error)
+    const errorMsg = error?.response?.data?.message || error?.message || '模型测试失败'
+    chatMessages.value.push({ 
+      role: 'assistant', 
+      content: errorMsg,
+      isError: true 
+    })
+  } finally {
+    chatLoading.value = false
+  }
+}
+
+// 关闭测试面板
+const closeTestPanel = () => {
+  showTestPanel.value = false
+  chatMessages.value = []
+  chatInput.value = ''
+  testResult.value = null
+  testing.value = false
+}
+
+// 重新测试
+const handleReTest = async () => {
+  chatMessages.value = []
+  chatInput.value = ''
+  testResult.value = null
+  testing.value = true
+  testResult.value = null
+  
+  try {
+    const response = await testModelAPI({ message: '你好' })
+    
+    if (response.data.code === 200) {
+      testResult.value = {
+        success: true,
+        model: response.data.data.model || '未知',
+        response: response.data.data.response || '无回复',
+        original_message: response.data.data.original_message || '你好'
+      }
+    } else {
+      testResult.value = {
+        success: false,
+        error: response.data.message || '模型测试失败，请检查配置是否正确'
+      }
+    }
+  } catch (error: any) {
+    console.error('模型测试失败:', error)
+    const errorMsg = error?.response?.data?.message || error?.message || '模型测试失败，请检查网络和配置'
+    testResult.value = {
+      success: false,
+      error: errorMsg
+    }
+  } finally {
+    testing.value = false
+  }
+}
 
 // 检测是否有更改
 const hasChanges = computed(() => {
@@ -348,7 +485,10 @@ const hasChanges = computed(() => {
     configForm.RAG_TOP_K !== originalConfig.RAG_TOP_K ||
     configForm.RAG_FETCH_K !== originalConfig.RAG_FETCH_K ||
     configForm.PRE_RETRIEVE_TOP_K !== originalConfig.PRE_RETRIEVE_TOP_K ||
-    configForm.MAX_HISTORY_LENGTH !== originalConfig.MAX_HISTORY_LENGTH
+    configForm.MAX_HISTORY_LENGTH !== originalConfig.MAX_HISTORY_LENGTH ||
+    configForm.GRAPH_MODEL_NAME !== originalConfig.GRAPH_MODEL_NAME ||
+    configForm.GRAPH_STRICT_MODE !== originalConfig.GRAPH_STRICT_MODE ||
+    configForm.GRAPH_MAX_CHUNK_SIZE !== originalConfig.GRAPH_MAX_CHUNK_SIZE
   )
 })
 
@@ -366,10 +506,13 @@ const fetchConfig = async () => {
       configForm.DASHSCOPE_API_KEY = config.DASHSCOPE_API_KEY?.trim() || ''
       configForm.HF_TOKEN = config.HF_TOKEN?.trim() || ''
       configForm.MODEL_NAME = config.MODEL_NAME?.trim() || ''
-      configForm.RAG_TOP_K = parseInt(config.RAG_TOP_K) || 5
-      configForm.RAG_FETCH_K = parseInt(config.RAG_FETCH_K) || 20
-      configForm.PRE_RETRIEVE_TOP_K = parseInt(config.PRE_RETRIEVE_TOP_K) || 5
-      configForm.MAX_HISTORY_LENGTH = parseInt(config.MAX_HISTORY_LENGTH) || 10
+      configForm.RAG_TOP_K = parseInt(config.RAG_TOP_K) 
+      configForm.RAG_FETCH_K = parseInt(config.RAG_FETCH_K) 
+      configForm.PRE_RETRIEVE_TOP_K = parseInt(config.PRE_RETRIEVE_TOP_K) 
+      configForm.MAX_HISTORY_LENGTH = parseInt(config.MAX_HISTORY_LENGTH) 
+      configForm.GRAPH_MODEL_NAME = config.GRAPH_MODEL_NAME?.trim() || ''
+      configForm.GRAPH_STRICT_MODE = config.GRAPH_STRICT_MODE === 'true' || config.GRAPH_STRICT_MODE === 'True'
+      configForm.GRAPH_MAX_CHUNK_SIZE = parseInt(config.GRAPH_MAX_CHUNK_SIZE) 
 
       // 保存原始配置用于对比
       Object.assign(originalConfig, configForm)
@@ -398,6 +541,13 @@ const handleSaveConfig = async () => {
     ElMessage.warning('请先修改配置')
     return
   }
+
+  chatMessages.value = []
+  chatInput.value = ''
+  testResult.value = null
+  testing.value = false
+  testResult.value = null
+
 
   saving.value = true
   try {
@@ -431,6 +581,15 @@ const handleSaveConfig = async () => {
     if (configForm.MAX_HISTORY_LENGTH !== originalConfig.MAX_HISTORY_LENGTH) {
       updateData.MAX_HISTORY_LENGTH = String(configForm.MAX_HISTORY_LENGTH)
     }
+    if (configForm.GRAPH_MODEL_NAME !== originalConfig.GRAPH_MODEL_NAME) {
+      updateData.GRAPH_MODEL_NAME = configForm.GRAPH_MODEL_NAME
+    }
+    if (configForm.GRAPH_STRICT_MODE !== originalConfig.GRAPH_STRICT_MODE) {
+      updateData.GRAPH_STRICT_MODE = configForm.GRAPH_STRICT_MODE ? 'true' : 'false'
+    }
+    if (configForm.GRAPH_MAX_CHUNK_SIZE !== originalConfig.GRAPH_MAX_CHUNK_SIZE) {
+      updateData.GRAPH_MAX_CHUNK_SIZE = String(configForm.GRAPH_MAX_CHUNK_SIZE)
+    }
 
     // 调用更新接口
     const response = await updateConfigAPI(updateData)
@@ -443,10 +602,10 @@ const handleSaveConfig = async () => {
       Object.assign(originalConfig, configForm)
       // fetchConfig()
       
-      // 🎯 显示测试对话框
-      showTestDialog.value = true
+      // 🎯 显示右侧测试面板
+      showTestPanel.value = true
       testResult.value = null
-      console.log("showTestDialog.value",showTestDialog.value)
+      console.log("showTestPanel.value", showTestPanel.value)
     } else {
       ElMessage.error(response.data.message || '保存配置失败')
     }
@@ -508,378 +667,25 @@ onMounted(async () => {
   // 加载系统配置
   await fetchConfig()
 
-  // // 获取筛选列表
-  // await Promise.all([
-  //   fetchModelsList(),
-  //   fetchAgentsList()
-  // ])
-
-  // // 初始化图表
-  // initCallCountChart()
-  // initTokenUsageChart()
-
-  // // 加载数据
-  // await fetchUsageData()
-
-  // // 监听窗口大小变化
-  // window.addEventListener('resize', handleResize)
 })
 
-// 清理
-onBeforeUnmount(() => {
-  // window.removeEventListener('resize', handleResize)
 
-  // if (callCountChart) {
-  //   callCountChart.dispose()
-  //   callCountChart = null
-  // }
-
-  // if (tokenUsageChart) {
-  //   tokenUsageChart.dispose()
-  //   tokenUsageChart = null
-  // }
-})
-
-// // 获取模型列表
-// const fetchModelsList = async () => {
-//   try {
-//     const res = await getUsageModelsAPI()
-//     if (res.data.status_code === 200) {
-//       modelsList.value = res.data.data || []
-//     }
-//   } catch (error) {
-//     console.error('获取模型列表失败:', error)
-//   }
-// }
-
-// // 获取智能体列表
-// const fetchAgentsList = async () => {
-//   try {
-//     const res = await getUsageAgentsAPI()
-//     if (res.data.status_code === 200) {
-//       agentsList.value = res.data.data || []
-//     }
-//   } catch (error) {
-//     console.error('获取智能体列表失败:', error)
-//   }
-// }
-
-// // 初始化调用次数折线图
-// const initCallCountChart = () => {
-//   if (!callCountChartRef.value) return
-
-//   if (callCountChart) {
-//     callCountChart.dispose()
-//   }
-
-//   callCountChart = echarts.init(callCountChartRef.value)
-
-//   const option = {
-//     color: ['#5B8FF9', '#61DDAA', '#65789B', '#F6BD16', '#7262fd', '#78D3F8'],
-//     tooltip: {
-//       trigger: 'axis',
-//       axisPointer: {
-//         type: 'cross'
-//       }
-//     },
-//     legend: {
-//       data: [],
-//       top: 10,
-//       textStyle: { color: '#606266' }
-//     },
-//     grid: {
-//       left: '3%',
-//       right: '3%',
-//       bottom: 40,
-//       top: 50,
-//       containLabel: true
-//     },
-//     xAxis: {
-//       type: 'category',
-//       boundaryGap: false,
-//       data: [],
-//       axisLine: { lineStyle: { color: '#dcdfe6' } },
-//       axisLabel: { color: '#606266' }
-//     },
-//     yAxis: {
-//       type: 'value',
-//       name: '调用次数',
-//       nameTextStyle: { color: '#606266' },
-//       splitLine: { lineStyle: { color: '#eee' } },
-//       axisLabel: { color: '#606266' }
-//     },
-//     dataZoom: [{ type: 'inside' }],
-//     series: []
-//   }
-
-//   callCountChart.setOption(option)
-// }
-
-// // 初始化 Token 使用量柱状图
-// const initTokenUsageChart = () => {
-//   if (!tokenUsageChartRef.value) return
-
-//   if (tokenUsageChart) {
-//     tokenUsageChart.dispose()
-//   }
-
-//   tokenUsageChart = echarts.init(tokenUsageChartRef.value)
-
-//   const option = {
-//     color: ['#5AD8A6', '#5B8FF9'],
-//     tooltip: {
-//       trigger: 'axis',
-//       axisPointer: {
-//         type: 'shadow'
-//       },
-//       formatter: (params: any) => {
-//         const list = Array.isArray(params) ? params : []
-//         const input = list.find((p: any) => p?.seriesName === '输入 Token')?.value || 0
-//         const output = list.find((p: any) => p?.seriesName === '输出 Token')?.value || 0
-//         const total = Number(input || 0) + Number(output || 0)
-//         const date = list[0]?.axisValueLabel || ''
-//         return `${date}<br/>输入 Token：${input}<br/>输出 Token：${output}<br/><b>总 Token：${total}</b>`
-//       }
-//     },
-//     legend: {
-//       data: ['输入 Token', '输出 Token'],
-//       top: 10,
-//       textStyle: { color: '#606266' }
-//     },
-//     grid: {
-//       left: '3%',
-//       right: '3%',
-//       bottom: 40,
-//       top: 50,
-//       containLabel: true
-//     },
-//     xAxis: {
-//       type: 'category',
-//       data: [],
-//       axisLine: { lineStyle: { color: '#dcdfe6' } },
-//       axisLabel: { color: '#606266' }
-//     },
-//     yAxis: {
-//       type: 'value',
-//       name: 'Token 数量',
-//       nameTextStyle: { color: '#606266' },
-//       splitLine: { lineStyle: { color: '#eee' } },
-//       axisLabel: { color: '#606266' }
-//     },
-//     series: [
-//       {
-//         name: '输入 Token',
-//         type: 'bar',
-//         stack: 'tokens',
-//         data: [],
-//         barMaxWidth: 20,
-//         itemStyle: {}
-//       },
-//       {
-//         name: '输出 Token',
-//         type: 'bar',
-//         stack: 'tokens',
-//         data: [],
-//         barMaxWidth: 20,
-//         itemStyle: {},
-//         label: {
-//           show: true,
-//           position: 'top',
-//           color: '#606266',
-//           fontWeight: 600,
-//           formatter: (p: any) => {
-//             const idx = p.dataIndex
-//             // 输出柱顶端显示 总 Token = 输入 + 输出
-//             const inputVal = (tokenUsageChart?.getOption()?.series?.[0] as any)?.data?.[idx] || 0
-//             const outputVal = (tokenUsageChart?.getOption()?.series?.[1] as any)?.data?.[idx] || 0
-//             return `${Number(inputVal || 0) + Number(outputVal || 0)}`
-//           }
-//         }
-//       }
-//     ]
-//   }
-
-//   tokenUsageChart.setOption(option)
-// }
-
-// // 更新调用次数折线图
-// const updateCallCountChart = (data: UsageCountByDate) => {
-//   if (!callCountChart) return
-
-//   const dates = Object.keys(data).sort()
-//   const seriesMap = new Map<string, number[]>()
-
-//   // 根据筛选条件确定数据来源（agent 或 model）
-//   const dataKey = filters.value.agent ? 'agent' : 'model'
-
-//   // 收集所有系列数据
-//   dates.forEach(date => {
-//     const dayData = data[date][dataKey]
-//     Object.entries(dayData).forEach(([name, count]) => {
-//       if (!seriesMap.has(name)) {
-//         seriesMap.set(name, new Array(dates.length).fill(0))
-//       }
-//       const index = dates.indexOf(date)
-//       seriesMap.get(name)![index] = count
-//     })
-//   })
-
-//   // 构建图表配置
-//   const series = Array.from(seriesMap.entries()).map(([name, data]) => ({
-//     name,
-//     type: 'line',
-//     data,
-//     smooth: true,
-//     symbol: 'circle',
-//     symbolSize: 6,
-//     lineStyle: { width: 2 },
-//     areaStyle: {
-//       opacity: 0.08
-//     }
-//   }))
-
-//   callCountChart.setOption({
-//     xAxis: {
-//       data: dates
-//     },
-//     legend: {
-//       data: Array.from(seriesMap.keys())
-//     },
-//     series
-//   })
-
-//   hasCallCountData.value = dates.length > 0 && series.length > 0 && series.some(s => (s.data as number[]).some(v => v > 0))
-// }
-
-// // 更新 Token 使用量柱状图
-// const updateTokenUsageChart = (data: UsageDataByDate) => {
-//   if (!tokenUsageChart) return
-
-//   const dates = Object.keys(data).sort()
-
-//   // 根据筛选条件确定数据来源（agent 或 model）
-//   const dataKey = filters.value.agent ? 'agent' : 'model'
-
-//   const inputTokens: number[] = []
-//   const outputTokens: number[] = []
-//   const totalTokens: number[] = []
-
-//   // 聚合每天的 Token 数据
-//   dates.forEach(date => {
-//     const dayData = data[date][dataKey]
-//     let dayInputTotal = 0
-//     let dayOutputTotal = 0
-//     let dayTotal = 0
-
-//     Object.values(dayData).forEach((tokenData: any) => {
-//       dayInputTotal += tokenData.input_tokens || 0
-//       dayOutputTotal += tokenData.output_tokens || 0
-//       dayTotal += tokenData.total_tokens || 0
-//     })
-
-//     inputTokens.push(dayInputTotal)
-//     outputTokens.push(dayOutputTotal)
-//     totalTokens.push(dayTotal)
-//   })
-
-//   tokenUsageChart.setOption({
-//     xAxis: {
-//       data: dates
-//     },
-//     series: [
-//       {
-//         name: '输入 Token',
-//         data: inputTokens
-//       },
-//       {
-//         name: '输出 Token',
-//         data: outputTokens
-//       }
-//     ]
-//   })
-
-//   hasTokenUsageData.value = dates.length > 0 && (inputTokens.some(v => v > 0) || outputTokens.some(v => v > 0))
-// }
-
-// // 获取使用统计数据
-// const fetchUsageData = async () => {
-//   loading.value = true
-
-//   try {
-//     const params: UsageStatsRequest = {
-//       agent: filters.value.agent || undefined,
-//       model: filters.value.model || undefined,
-//       delta_days: filters.value.delta_days
-//     }
-
-//     // 获取调用次数数据
-//     const countRes = await getUsageCountAPI(params)
-//     if (countRes.data.status_code === 200) {
-//       updateCallCountChart(countRes.data.data)
-//       // 累计调用次数（使用显式遍历避免 unknown 类型问题）
-//       const dk: 'agent' | 'model' = (filters.value.agent ? 'agent' : 'model')
-//       let calls = 0
-//       const dayList = Object.values(countRes.data.data || {}) as Array<any>
-//       for (const day of dayList) {
-//         const map = (day?.[dk] || {}) as Record<string, number>
-//         for (const v of Object.values(map)) calls += Number(v || 0)
-//       }
-//       totalCalls.value = calls
-//     }
-
-//     // 获取 Token 使用量数据
-//     const statsRes = await getUsageStatsAPI(params)
-//     if (statsRes.data.status_code === 200) {
-//       updateTokenUsageChart(statsRes.data.data)
-//       // 累计 Token（使用显式遍历避免 unknown 类型问题）
-//       const dk: 'agent' | 'model' = (filters.value.agent ? 'agent' : 'model')
-//       let tokens = 0
-//       const dayList = Object.values(statsRes.data.data || {}) as Array<any>
-//       for (const day of dayList) {
-//         const map = (day?.[dk] || {}) as Record<string, { total_tokens?: number }>
-//         for (const obj of Object.values(map)) tokens += Number(obj?.total_tokens || 0)
-//       }
-//       totalTokens.value = tokens
-//     }
-
-//     ElMessage.success('数据刷新成功')
-//   } catch (error) {
-//     console.error('获取使用统计数据失败:', error)
-//     ElMessage.error('获取数据失败')
-//   } finally {
-//     loading.value = false
-//   }
-// }
-
-// // 筛选条件变化
-// const handleFilterChange = () => {
-//   fetchUsageData()
-// }
-
-// // 刷新数据
-// const handleRefresh = () => {
-//   fetchUsageData()
-// }
-
-// // 窗口大小变化处理
-// const handleResize = () => {
-//   callCountChart?.resize()
-//   tokenUsageChart?.resize()
-// }
 
 
 </script>
 
 <style scoped lang="scss">
 .dashboard-container {
-  padding: 24px;
   background-color: #f5f7fa;
-  min-height: calc(100vh - 60px);
+  display:flex;
 }
+
+ .dashboard-content{
+    flex:1
+  }
 
 .dashboard-header {
   margin-bottom: 24px;
-
   .title-wrap {
     display: flex;
     align-items: center;
@@ -1138,7 +944,7 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
   padding: 24px;
-  margin-top: 24px;
+  
   border: 1px solid #e4e8f1;
 
   .config-form-header {
@@ -1230,6 +1036,222 @@ onBeforeUnmount(() => {
 @media (max-width: 1400px) {
   .charts-container {
     grid-template-columns: 1fr;
+  }
+}
+
+// 右侧测试面板样式
+.test-panel {
+  width: 30%;
+  height: auto;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+  padding: 24px;
+  
+  border: 1px solid #e4e8f1;
+
+  .test-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #ebeef5;
+    flex-shrink: 0;
+
+    .panel-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #303133;
+    }
+
+    .close-icon {
+      font-size: 18px;
+      color: #909399;
+      cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        color: #606266;
+      }
+    }
+  }
+
+  .test-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+
+    .test-content {
+      .test-result {
+        .result-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 12px;
+          border-radius: 8px;
+          margin-bottom: 12px;
+
+          &.success {
+            background-color: #f0f9ff;
+            border: 1px solid #e6ffed;
+          }
+
+          &.error {
+            background-color: #fef0f0;
+            border: 1px solid #ffe6e6;
+          }
+
+          .result-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+          }
+
+          .result-text {
+            font-size: 14px;
+            font-weight: 600;
+          }
+        }
+
+        .result-details {
+          .detail-row {
+            display: flex;
+            margin-bottom: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+
+            .label {
+              width: 80px;
+              color: #909399;
+              flex-shrink: 0;
+            }
+
+            .value {
+              flex: 1;
+              color: #303133;
+              word-break: break-word;
+
+              &.response {
+                white-space: pre-wrap;
+                max-height: 150px;
+                overflow-y: auto;
+              }
+            }
+          }
+        }
+      }
+
+      .testing-tip {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 30px 0;
+        color: #909399;
+
+        .loading-icon {
+          font-size: 28px;
+          animation: rotating 2s linear infinite;
+        }
+      }
+
+      .initial-tip {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 30px 0;
+        color: #909399;
+
+        .tip-icon {
+          font-size: 28px;
+          color: #409EFF;
+        }
+      }
+    }
+
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #e4e7ed;
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 200px;
+
+      .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background-color: #fafafa;
+
+        .chat-message {
+          max-width: 85%;
+          padding: 10px 14px;
+          border-radius: 12px;
+          font-size: 13px;
+          line-height: 1.5;
+
+          &.user {
+            align-self: flex-end;
+            background-color: #409EFF;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+          }
+
+          &.assistant {
+            align-self: flex-start;
+            background-color: #fff;
+            border: 1px solid #e4e7ed;
+            border-bottom-left-radius: 4px;
+            color: #303133;
+
+            &.error {
+              background-color: #fef0f0;
+              border-color: #ffe6e6;
+              color: #F56C6C;
+            }
+          }
+
+          .message-content {
+            white-space: pre-wrap;
+            word-break: break-word;
+          }
+        }
+      }
+
+      .chat-input-area {
+        display: flex;
+        gap: 8px;
+        padding: 10px;
+        border-top: 1px solid #e4e7ed;
+        background-color: #fff;
+
+        .el-input {
+          flex: 1;
+        }
+      }
+    }
+  }
+
+  .test-panel-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 12px 20px;
+    border-top: 1px solid #ebeef5;
+    background-color: #f5f7fa;
+    flex-shrink: 0;
   }
 }
 
@@ -1365,6 +1387,21 @@ onBeforeUnmount(() => {
           .loading-icon {
             font-size: 32px;
             animation: rotating 2s linear infinite;
+          }
+        }
+
+        .initial-tip {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+          padding: 40px 0;
+          color: #909399;
+
+          .tip-icon {
+            font-size: 32px;
+            color: #409EFF;
           }
         }
       }
