@@ -107,7 +107,8 @@ export const getFinalDocumentAPI = async (sessionId: string) => {
 export const downloadDocumentAPI = async (filename: string) => {
   return request({
     url: `/api/v1/form-filling/download/${filename}`,
-    method: 'GET'
+    method: 'GET',
+    responseType: 'blob'
   })
 }
 

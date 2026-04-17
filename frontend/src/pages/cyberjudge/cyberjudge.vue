@@ -7,7 +7,7 @@ import histortCard from '../../components/historyCard/cyberJudgeHistoryCard.vue'
 import { useRouter, useRoute } from 'vue-router'
 import { MdPreview } from "md-editor-v3"
 import "md-editor-v3/lib/style.css"
-import { getSessionListAPI, getSessionAPI, deleteSessionAPI, sendMessage ,uploadFile} from '../../apis/cyberJudge'
+import { getSessionListAPI, getSessionAPI, deleteSessionAPI, sendMessageStream, uploadFile } from '../../apis/cyberJudge'
 import { useUserStore } from '../../store/user'
 import type { analyzepayload } from '../../apis/cyberJudge'
 
@@ -27,6 +27,8 @@ const sessionsTotal = ref<number>(0) // 会话总数
 const loading = ref(false) // 是否正在加载会话列表
 const messages = ref<Array<message>>([]) // 消息列表，包含用户消息和AI回复，类型根据后端返回的数据结构定义
 const showSessionList = ref(true) // 是否显示会话列表
+const currentProgress = ref('')
+const currentFactsSummary = ref('')
 //当前的sources列表
 const currentSources = ref<file[]>([])
 //需要上传的文件列表
@@ -41,11 +43,31 @@ interface session {
   title: string
 }
 
+interface lawItem {
+  title: string
+  publisher?: string
+  publish_date?: string
+  timeliness?: string
+  law_id?: string
+  content_preview?: string
+}
+
+interface caseItem {
+  title: string
+  case_number?: string
+  court?: string
+  judgement_date?: string
+  cause?: string
+  content_preview?: string
+}
+
 interface message {
   role: 'user' | 'assistant'
   content: string
   timestamp?: string
   sources?: file[]
+  related_laws?: lawItem[]
+  related_cases?: caseItem[]
 }
 
 interface file {
@@ -77,6 +99,8 @@ const openCreateSession = async () => {
   inputMessage.value = ''              // 清空输入框
   messages.value = []
   currentSessionId.value = ''
+  currentProgress.value = ''
+  currentFactsSummary.value = ''
   currentSources.value = [] // 清空当前文件 sources
   Files.value = [] // 清空上传文件列表
   fetchSessions()
@@ -158,6 +182,8 @@ const selectSession = async (session_id: string) => {
           content: msg.content || '',
           timestamp: msg.timestamp,
           sources: msg.sources || [], //TODO: 处理 sources 字段
+          related_laws: msg.related_laws || [],
+          related_cases: msg.related_cases || [],
         }))
 
         console.log('已加载会话历史，消息数量:', messages.value.length)
@@ -203,6 +229,8 @@ const handleSend = () => {
   console.log('query:', question)
   console.log('session_id:', currentSessionId.value)
 
+  currentProgress.value = ''
+  currentFactsSummary.value = ''
   inputMessage.value = ''
   isGenerating.value = true
   messages.value.push({ role: 'user' as const, content: question })
@@ -226,47 +254,57 @@ const handleSend = () => {
 
   console.log('准备调用 sendMessage，payload:', payload)
 
-  sendMessage(payload)
-    .then((response: any) => {
-      response.data.on('data', (chunk: string) => {
-        const lines = chunk.toString().split('\n')
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') {
-              isGenerating.value = false
-              fetchSessions()
-              return
-            }
-            try {
-              const parsed = JSON.parse(data)
-              if (parsed.content) {
-                assistantMessage.content += parsed.content
-                scrollToBottom()
-              }
-            } catch (e) {
-              console.error('解析流式数据失败', e)
-            }
-          }
-        }
-      })
-
-      response.data.on('end', () => {
-        isGenerating.value = false
+  sendMessageStream(payload, {
+    onMetadata(data: any) {
+      if (data?.session_id) {
+        currentSessionId.value = data.session_id
+      }
+    },
+    onProgress(data: any) {
+      currentProgress.value = data?.message || ''
+    },
+    onFactsSummary(data: any) {
+      currentFactsSummary.value = data?.summary || ''
+      scrollToBottom()
+    },
+    onToken(data: any) {
+      currentProgress.value = '正在输出分析结果...'
+      if (data?.content) {
+        assistantMessage.content += data.content
+        scrollToBottom()
+      }
+    },
+    onTitle(data: any) {
+      if (data?.title) {
         fetchSessions()
-      })
-
-      response.data.on('error', (err: any) => {
-        console.error('流式响应错误', err)
-        ElMessage.error('对话异常')
-        isGenerating.value = false
-      })
-    })
-    .catch((e: any) => {
-      console.error('RAG 模式对话异常', e)
-      ElMessage.error('对话异常')
+      }
+    },
+    onComplete(data: any) {
+      currentProgress.value = ''
+      if (data?.content) {
+        assistantMessage.content = data.content
+      }
+      assistantMessage.related_laws = data?.related_laws || []
+      assistantMessage.related_cases = data?.related_cases || []
+      scrollToBottom()
+    },
+    onError(data: any) {
+      console.error('流式响应错误', data)
+      ElMessage.error(data?.message || '对话异常')
+      currentProgress.value = ''
       isGenerating.value = false
-    })
+    },
+    onDone() {
+      currentProgress.value = ''
+      isGenerating.value = false
+      fetchSessions()
+    }
+  }).catch((e: any) => {
+    console.error('赛博判官对话异常', e)
+    ElMessage.error('对话异常')
+    currentProgress.value = ''
+    isGenerating.value = false
+  })
 }
 
 //上传多个文件
@@ -478,10 +516,38 @@ watch(
                   <div v-if="!msg.content && isGenerating && idx === messages.length - 1"
                     class="loading-spinner-container">
                     <div class="loading-spinner"></div>
-                    <span class="loading-text">AI 正在思考中...</span>
+                    <span class="loading-text">{{ currentProgress || 'AI 正在思考中...' }}</span>
                   </div>
+                  <div v-if="currentFactsSummary && idx === messages.length - 1" class="facts-summary-card">
+                    <div class="facts-summary-title">已识别文件事实</div>
+                    <div class="facts-summary-content">{{ currentFactsSummary }}</div>
+                  </div>
+                  <div v-if="msg.related_laws?.length" class="result-card laws-card">
+                    <div class="result-card-title">相关法律法规</div>
+                    <div v-for="(law, lawIndex) in msg.related_laws" :key="`${idx}-law-${lawIndex}`" class="result-item">
+                      <div class="result-item-name">{{ law.title }}</div>
+                      <div class="result-item-meta">
+                        <span v-if="law.publisher">{{ law.publisher }}</span>
+                        <span v-if="law.publish_date">{{ law.publish_date }}</span>
+                        <span v-if="law.timeliness">{{ law.timeliness }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="msg.related_cases?.length" class="result-card cases-card">
+                    <div class="result-card-title">相关案例</div>
+                    <div v-for="(legalCase, caseIndex) in msg.related_cases" :key="`${idx}-case-${caseIndex}`" class="result-item">
+                      <div class="result-item-name">{{ legalCase.title }}</div>
+                      <div class="result-item-meta">
+                        <span v-if="legalCase.case_number">{{ legalCase.case_number }}</span>
+                        <span v-if="legalCase.court">{{ legalCase.court }}</span>
+                        <span v-if="legalCase.judgement_date">{{ legalCase.judgement_date }}</span>
+                      </div>
+                      <div v-if="legalCase.cause" class="result-item-extra">案由：{{ legalCase.cause }}</div>
+                    </div>
+                  </div>
+                  <div v-if="msg.content && isGenerating && idx === messages.length - 1" class="streaming-text">{{ msg.content }}</div>
                   <!-- 实际内容 - 有内容时显示 -->
-                  <MdPreview v-if="msg.content" :editorId="'workspace-ai-' + idx" :modelValue="msg.content" />
+                  <MdPreview v-else-if="msg.content" :editorId="'workspace-ai-' + idx" :modelValue="msg.content" />
                 </div>
               </div>
             </div>
@@ -1938,6 +2004,99 @@ watch(
             .loading-text {
               font-weight: 500;
               color: #9ca3af;
+            }
+          }
+
+          .facts-summary-card {
+            margin-bottom: 16px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 1px solid #b6e3ff;
+            background: linear-gradient(135deg, #f3fbff 0%, #e8f7ff 100%);
+
+            .facts-summary-title {
+              font-size: 14px;
+              font-weight: 600;
+              color: #1677ff;
+              margin-bottom: 8px;
+            }
+
+            .facts-summary-content {
+              font-size: 14px;
+              line-height: 1.8;
+              color: #334155;
+              white-space: pre-wrap;
+            }
+          }
+
+          .streaming-text {
+            font-size: 15px;
+            line-height: 1.9;
+            color: #334155;
+            white-space: pre-wrap;
+            word-break: break-word;
+          }
+
+          .result-card {
+            margin-bottom: 14px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            background: #f8fafc;
+
+            &.laws-card {
+              border-color: #c7e0ff;
+              background: linear-gradient(135deg, #f7fbff 0%, #eef6ff 100%);
+            }
+
+            &.cases-card {
+              border-color: #d9f0d0;
+              background: linear-gradient(135deg, #f8fff5 0%, #f1faec 100%);
+            }
+
+            .result-card-title {
+              font-size: 12px;
+              font-weight: 600;
+              color: #475569;
+              margin-bottom: 10px;
+            }
+
+            .result-item {
+              padding: 8px 0;
+              border-top: 1px dashed rgba(148, 163, 184, 0.35);
+
+              &:first-of-type {
+                border-top: none;
+                padding-top: 0;
+              }
+
+              &:last-of-type {
+                padding-bottom: 0;
+              }
+            }
+
+            .result-item-name {
+              font-size: 12px;
+              font-weight: 600;
+              line-height: 1.6;
+              color: #1e293b;
+              margin-bottom: 4px;
+            }
+
+            .result-item-meta {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 8px;
+              font-size: 11px;
+              line-height: 1.6;
+              color: #64748b;
+            }
+
+            .result-item-extra {
+              margin-top: 4px;
+              font-size: 11px;
+              line-height: 1.6;
+              color: #475569;
             }
           }
         }

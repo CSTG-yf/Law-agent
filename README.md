@@ -1,17 +1,20 @@
 需求：构建法律AI问答系统
 
----------------------------------------------------------------------------------------------------
+***
+
 技术栈：
 
-前端：Vue3  
+前端：Vue3\
 后端：FastAPI + 混合检索RAG
-agent智能体框架：Langchain  
-项目依赖管理工具：uv  
+agent智能体框架：Langchain\
+项目依赖管理工具：uv
 
-docker中部署：ollama 向量嵌入模型，neo4j 图数据库，chroma 向量数据库，redis 任务队列。  
+docker中部署：ollama 向量嵌入模型，neo4j 图数据库，chroma 向量数据库，redis 任务队列。
 
----------------------------------------------------------------------------------------------------
+***
+
 后端目前架构：
+
 ```bash
 backend/
 ├── app/
@@ -107,33 +110,38 @@ backend/
 └── tests/                    # 存放单元测试代码
 ```
 
+***
 
----------------------------------------------------------------------------------------------------
 命令：
 激活环境：
+
 ```bash
 cd backend
 .venv\Scripts\activate
 ```
 
 启动docker容器：
+
 ```bash
 docker-compose up -d
 ```
 
 向量模型下载启动脚本：
+
 ```bash
 docker exec legal-embedding-server bash /scripts/init-model.sh
 ```
 
 启动后端服务：
+
 ```bash
 cd backend
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 启动Celery Worker（用于异步任务处理）：
-```bash
+
+````bash
 cd backend
 # Windows
 scripts\start-celery.bat
@@ -148,31 +156,33 @@ NER模型 (实体识别):    uer/roberta-base-finetuned-cluener2020-chinese
 ```bash
 cd backend
 uv run python scripts/download_models.py
-```
-
+````
 
 清空日志内容:
+
 ```bash
 uv run clear_logs.py
 ```
 
 杀掉8000端口进程:
+
 ```bash
 uv run python scripts/kill_port.py 8000
 ```
 
 拉取前端代码:
+
 ```bash
-git fetch origin && git checkout origin/frontend -- frontend/
+git fetch origin
 git -C F:\Law-agent checkout origin/frontend -- frontend/
 ```
 
-
 API文档：
-启动服务后访问：http://localhost:8000/docs
+启动服务后访问：<http://localhost:8000/docs>
 git -C F:\Law-agent checkout origin/frontend -- frontend/
 
----------------------------------------------------------------------------------------------------
+***
+
 Agent回答流程详解（并行优化版）：
 
 ```
@@ -361,7 +371,8 @@ Agent回答流程详解（并行优化版）：
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
----------------------------------------------------------------------------------------------------
+***
+
 并行优化详解：
 
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -370,30 +381,30 @@ Agent回答流程详解（并行优化版）：
 │   原串行流程:                                                                    │
 │   ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐                     │
 │   │ 意图识别 │───►│ 实体识别 │───►│ 预检索  │───►│ Query改写│                    │
-│   │  ~200ms │    │  ~150ms │    │  ~300ms │    │  ~200ms │                     │
+│   │  \~200ms │    │  \~150ms │    │  \~300ms │    │  \~200ms │                     │
 │   └─────────┘    └─────────┘    └─────────┘    └─────────┘                     │
-│   总耗时: ~850ms                                                                │
+│   总耗时: \~850ms                                                                │
 │                                                                                 │
 │   并行优化后:                                                                    │
 │   ┌─────────────────────────────────────────────────────────────────────────┐   │
 │   │                                                                         │   │
 │   │   ┌─────────┐                                                          │   │
 │   │   │ 意图识别 │ ─┐                                                       │   │
-│   │   │  ~200ms │  │                                                       │   │
+│   │   │  \~200ms │  │                                                       │   │
 │   │   └─────────┘  │                                                       │   │
 │   │                 │    ┌─────────┐    ┌─────────┐                        │   │
 │   │   ┌─────────┐   ├───►│ 结果合并 │───►│ Query改写│                       │   │
-│   │   │ 实体识别 │ ─┤    │         │    │  ~200ms │                        │   │
-│   │   │  ~150ms │  │    └─────────┘    └─────────┘                        │   │
+│   │   │ 实体识别 │ ─┤    │         │    │  \~200ms │                        │   │
+│   │   │  \~150ms │  │    └─────────┘    └─────────┘                        │   │
 │   │   └─────────┘  │                                                       │   │
 │   │                 │                                                       │   │
 │   │   ┌─────────┐   │                                                       │   │
 │   │   │ 预检索  │ ─┘                                                       │   │
-│   │   │  ~300ms │                                                          │   │
+│   │   │  \~300ms │                                                          │   │
 │   │   └─────────┘                                                          │   │
 │   │                                                                         │   │
 │   └─────────────────────────────────────────────────────────────────────────┘   │
-│   总耗时: max(200,150,300) + 200 = ~500ms                                       │
+│   总耗时: max(200,150,300) + 200 = \~500ms                                       │
 │   性能提升: 约40%                                                               │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -411,12 +422,12 @@ Agent回答流程详解（并行优化版）：
 │   • government (政府机构)                                                        │
 │                                                                                 │
 │   法律领域规则匹配（补充）:                                                        │
-│   • law_name: 法条名称（如"劳动合同法"、"民法典"）                                 │
+│   • law\_name: 法条名称（如"劳动合同法"、"民法典"）                                 │
 │   • article: 条款号（如"第39条"、"第107条"）                                      │
 │   • topic: 法律主题（如"经济补偿金"、"工伤认定"）                                  │
-│   • case_type: 案件类型（如"劳动争议"、"合同纠纷"）                                │
+│   • case\_type: 案件类型（如"劳动争议"、"合同纠纷"）                                │
 │   • amount: 金额（如"10万元"、"3个月工资"）                                       │
-│   • time_period: 时间期限（如"诉讼时效"、"仲裁时效"）                              │
+│   • time\_period: 时间期限（如"诉讼时效"、"仲裁时效"）                              │
 │   • action: 行为（如"计算"、"赔偿"、"解除"）                                      │
 │                                                                                 │
 │   输出应用:                                                                      │
@@ -445,13 +456,15 @@ Agent回答流程详解（并行优化版）：
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
----------------------------------------------------------------------------------------------------
+***
+
 多轮对话API说明：
 
 基于LangGraph实现的多轮对话系统，支持流式输出和可选的RAG检索。
 
 核心特性：
-- 多轮对话管理：基于session_id维护对话上下文
+
+- 多轮对话管理：基于session\_id维护对话上下文
 - 滑动窗口：自动控制历史记录长度（默认10轮，可配置1-50）
 - 流式输出：支持SSE实时输出，提升用户体验
 - RAG集成：可选启用RAG检索，支持多种检索策略
@@ -461,25 +474,29 @@ Agent回答流程详解（并行优化版）：
 - 会话标题：自动生成会话标题，便于识别和管理会话
 
 检索策略：
+
 - vector：向量检索（基于语义相似度）
 - hybrid：混合检索（向量+BM25关键词）
 - mmr：最大边际相关性检索（平衡相关性和多样性）
-- multi_query：多查询检索（生成多个查询变体）
+- multi\_query：多查询检索（生成多个查询变体）
 
 意图类型：
+
 - chitchat：闲聊（问候、感谢等），跳过检索直接对话
-- follow_up：追问（指代、省略、追问），需要Query改写后检索
-- new_question：新问题，直接检索或简单优化后检索
+- follow\_up：追问（指代、省略、追问），需要Query改写后检索
+- new\_question：新问题，直接检索或简单优化后检索
 
 API接口：
+
 - POST /api/v1/chat/message - 发送消息（支持流式和RAG）
-- GET /api/v1/chat/sessions/{session_id} - 获取会话信息
-- GET /api/v1/chat/sessions/{session_id}/history - 获取对话历史
-- DELETE /api/v1/chat/sessions/{session_id} - 删除会话
+- GET /api/v1/chat/sessions/{session\_id} - 获取会话信息
+- GET /api/v1/chat/sessions/{session\_id}/history - 获取对话历史
+- DELETE /api/v1/chat/sessions/{session\_id} - 删除会话
 - GET /api/v1/chat/sessions - 获取会话列表
-- POST /api/v1/chat/sessions/{session_id}/clear - 清空会话历史
+- POST /api/v1/chat/sessions/{session\_id}/clear - 清空会话历史
 
 请求示例：
+
 ```json
 {
   "message": "劳动纠纷中如何计算经济补偿金？",
@@ -493,6 +510,7 @@ API接口：
 ```
 
 响应示例：
+
 ```json
 {
   "code": 200,
@@ -517,7 +535,8 @@ API接口：
 }
 ```
 
----------------------------------------------------------------------------------------------------
+***
+
 法律文书智能填充模块：
 
 ```
@@ -550,19 +569,16 @@ API接口：
    - 跟踪每个槽位的值、确认状态、置信度
    - 计算业务块和整体完成率
    - 支持槽位更新、查询、删除
-
 2. **语义提取引擎 (SlotExtractor)**
    - 从用户自然语言中提取结构化信息
    - 支持多业务块的信息提取
    - 智能推断隐含信息
    - 生成澄清问题
-
 3. **文档渲染服务 (DocRenderer)**
    - 加载Word模板文件
    - 使用占位符填充数据
    - 生成最终文档
    - 支持文档下载
-
 4. **对话策略管理 (ConversationStrategy)**
    - 根据当前状态生成引导问题
    - 处理用户意图（修改、跳转、完成）
@@ -570,31 +586,31 @@ API接口：
 
 业务块划分：
 
-| 业务块 | 说明 | 必填项 |
-|--------|------|--------|
-| plaintiff | 原告信息 | 姓名、电话、住址 |
-| agent | 代理人信息 | 无（可选） |
-| service_address | 送达地址 | 地址、收件人、电话 |
-| defendant | 被告信息 | 公司名称、地址 |
-| facts | 事实与理由 | 入职日期、用人单位、离职日期、离职原因 |
-| claims | 诉讼请求 | 无（可选） |
+| 业务块              | 说明    | 必填项                 |
+| ---------------- | ----- | ------------------- |
+| plaintiff        | 原告信息  | 姓名、电话、住址            |
+| agent            | 代理人信息 | 无（可选）               |
+| service\_address | 送达地址  | 地址、收件人、电话           |
+| defendant        | 被告信息  | 公司名称、地址             |
+| facts            | 事实与理由 | 入职日期、用人单位、离职日期、离职原因 |
+| claims           | 诉讼请求  | 无（可选）               |
 
 API接口：
 
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| /api/v1/form-filling/start | POST | 开始新的填写会话 |
-| /api/v1/form-filling/message | POST | 发送消息进行对话式填写 |
-| /api/v1/form-filling/state | POST | 获取当前填写状态 |
-| /api/v1/form-filling/update-slot | POST | 手动更新槽位值 |
-| /api/v1/form-filling/generate | POST | 生成最终文档 |
-| /api/v1/form-filling/download/{filename} | GET | 下载生成的文档 |
-| /api/v1/form-filling/session/{session_id} | DELETE | 删除填写会话 |
-| /api/v1/form-filling/templates | GET | 获取可用模板列表 |
+| 接口                                         | 方法     | 说明          |
+| ------------------------------------------ | ------ | ----------- |
+| /api/v1/form-filling/start                 | POST   | 开始新的填写会话    |
+| /api/v1/form-filling/message               | POST   | 发送消息进行对话式填写 |
+| /api/v1/form-filling/state                 | POST   | 获取当前填写状态    |
+| /api/v1/form-filling/update-slot           | POST   | 手动更新槽位值     |
+| /api/v1/form-filling/generate              | POST   | 生成最终文档      |
+| /api/v1/form-filling/download/{filename}   | GET    | 下载生成的文档     |
+| /api/v1/form-filling/session/{session\_id} | DELETE | 删除填写会话      |
+| /api/v1/form-filling/templates             | GET    | 获取可用模板列表    |
 
 使用流程：
 
-1. 调用 `/start` 接口创建会话，获取 session_id
+1. 调用 `/start` 接口创建会话，获取 session\_id
 2. 通过 `/message` 接口进行对话式填写
 3. 系统自动提取信息并更新槽位
 4. 所有必填项完成后，调用 `/generate` 生成文档
@@ -603,6 +619,7 @@ API接口：
 模板占位符格式（使用 Jinja2 语法）：
 
 Word模板中使用 `{{ slot_name }}` 格式的占位符（注意变量名两侧有空格），例如：
+
 - `{{ plaintiff.name }}` - 原告姓名
 - `{{ defendant.name }}` - 被告公司名称
 - `{{ facts.employment_details.start_date }}` - 入职日期
@@ -610,6 +627,7 @@ Word模板中使用 `{{ slot_name }}` 格式的占位符（注意变量名两侧
 Jinja2 高级语法支持：
 
 **条件判断**
+
 ```jinja
 {% if plaintiff.gender == '男' %}
 原告先生
@@ -619,6 +637,7 @@ Jinja2 高级语法支持：
 ```
 
 **循环遍历**
+
 ```jinja
 {% for claim in claims_list %}
 - {{ claim }}
@@ -626,6 +645,7 @@ Jinja2 高级语法支持：
 ```
 
 **默认值**
+
 ```jinja
 {{ plaintiff.phone or '未填写' }}
 ```
@@ -633,6 +653,7 @@ Jinja2 高级语法支持：
 **完整占位符列表（严格匹配 JSON Schema）**
 
 **原告信息 (plaintiff)**
+
 - `{{ plaintiff.name }}` - 姓名
 - `{{ plaintiff.gender }}` - 性别（男/女）
 - `{{ plaintiff.birthday }}` - 出生日期
@@ -644,6 +665,7 @@ Jinja2 高级语法支持：
 - `{{ plaintiff.habitual_residence }}` - 现住址
 
 **代理人信息 (agent)**
+
 - `{{ agent.has_agent }}` - 是否有代理人（true/false）
 - `{{ agent.name }}` - 代理人姓名
 - `{{ agent.work_place }}` - 代理人工作单位
@@ -652,6 +674,7 @@ Jinja2 高级语法支持：
 - `{{ agent.auth }}` - 授权类型（一般/特别）
 
 **送达地址 (service)**
+
 - `{{ service.address }}` - 送达地址
 - `{{ service.recipient }}` - 收件人
 - `{{ service.phone }}` - 联系电话
@@ -660,6 +683,7 @@ Jinja2 高级语法支持：
 - `{{ service.mail }}` - 电子邮箱
 
 **被告信息 (defendant)**
+
 - `{{ defendant.name }}` - 公司名称
 - `{{ defendant.address }}` - 公司地址
 - `{{ defendant.Company_address }}` - 公司注册地址
@@ -671,6 +695,7 @@ Jinja2 高级语法支持：
 - `{{ defendant.is_state_owned }}` - 是否国有企业（true/false）
 
 **诉讼请求 (claims)**
+
 - `{{ claims.salary.active }}` - 是否主张工资（true/false）
 - `{{ claims.salary.details }}` - 工资详情
 - `{{ claims.double_salary.active }}` - 是否主张双倍工资（true/false）
@@ -689,11 +714,13 @@ Jinja2 高级语法支持：
 - `{{ claims.litigation_cost_burden }}` - 诉讼费用承担
 
 **财产保全 (preservation)**
+
 - `{{ preservation.active }}` - 是否申请财产保全（true/false）
 - `{{ preservation.court }}` - 保全法院
 - `{{ preservation.document }}` - 保全文书
 
 **事实与理由 (facts)**
+
 - `{{ facts.contract_signing }}` - 合同签订情况
 - `{{ facts.performance_details }}` - 劳动合同履行情况
 - `{{ facts.termination_reason }}` - 离职原因
@@ -702,11 +729,12 @@ Jinja2 高级语法支持：
 - `{{ facts.is_migrant_worker }}` - 是否农民工（true/false）
 - `{{ facts.legal_basis }}` - 法律依据
 
----------------------------------------------------------------------------------------------------
-赛博判官模块架构
----------------------------------------------------------------------------------------------------
+***
+
+## 赛博判官模块架构
 
 赛博判官是一个智能法律分析与判断系统，提供以下核心功能：
+
 - 根据用户上传的文件和描述进行法律分析
 - 自动检索相关案例和法律法规
 - 提供专业的法律建议和风险评估
@@ -767,6 +795,7 @@ Jinja2 高级语法支持：
 ```
 
 **文件结构：**
+
 ```
 backend/app/
 ├── api/v1/
@@ -785,6 +814,7 @@ backend/app/
 ```
 
 **意图类型：**
+
 - `legal_consultation`: 法律咨询（一般性问题）
 - `case_analysis`: 案例分析（需要检索案例）
 - `law_inquiry`: 法规查询（需要检索法规）
@@ -796,6 +826,7 @@ backend/app/
 - `chitchat`: 闲聊
 
 **API接口：**
+
 - `POST /api/v1/cyber-judge/upload` - 上传文件
 - `POST /api/v1/cyber-judge/analyze` - 法律分析
 - `GET /api/v1/cyber-judge/sessions` - 获取会话列表
@@ -805,6 +836,7 @@ backend/app/
 - `POST /api/v1/cyber-judge/sessions/{session_id}/clear` - 清空会话历史
 
 **响应体示例：**
+
 ```json
 {
     "code": 200,
@@ -873,4 +905,5 @@ backend/app/
 }
 ```
 
----------------------------------------------------------------------------------------------------
+***
+

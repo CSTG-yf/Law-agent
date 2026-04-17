@@ -36,12 +36,13 @@ const loading = ref(false) // 是否正在加载会话列表
 const messages = ref<Array<MessageMetadata>>([]) // 消息列表，包含用户消息和AI回复，类型根据后端返回的数据结构定义
 const showSessionList = ref(true) // 是否显示会话列表
 
-// 四种rag 搜素策略
+// 五种rag 搜素策略
 const strategys = ref<any[]>([
   { name: 'vector向量检索', value: 'vector', image: '/src/assets/plugin.svg' },
   { name: 'hybrid混合检索', value: 'hybrid', image: '/src/assets/plugin.svg' },
   { name: 'mmr最大边际相关性检索', value: 'mmr', image: '/src/assets/plugin.svg' },
   { name: 'multi_query多问题改写向量检索', value: 'multi_query', image: '/src/assets/plugin.svg' },
+  { name: 'graph知识图谱检索', value: 'graph', image: '/src/assets/plugin.svg' },
 ])
 
 // 定义来源元数据接口
@@ -636,9 +637,9 @@ watch(
             <div class="avatar-wrapper">
               <img src="../../assets/robot.svg" alt="智言" class="avatar" />
             </div>
-            <h1 class="welcome-title">我是律动AI助手，很高兴见到你！</h1>
+            <h1 class="welcome-title">我是智言小助手，很高兴见到你！</h1>
             <p class="welcome-subtitle">
-              吾心吾行澄如明镜,所作所为皆为正义。
+              欢迎体验智言灵寻 LingSeek，一位懂得完成复杂任务的 Agent 助理~
             </p>
           </div>
 
@@ -656,7 +657,7 @@ watch(
                   <div class="selector-dropdown">
                     <div :class="['selector-item', { active: selectedMode === 'normal' }]" @click="toggleWebSearch">
                       <span class="selector-icon">🌐</span>
-                      <span class="selector-text">得理智能搜索</span>
+                      <span class="selector-text">德理智能搜索</span>
                     </div>
                   </div>
 
@@ -725,7 +726,6 @@ watch(
               </div>
             </div>
           </div>
-          <p class="disclaimer-text">内容均为AI生成，想要获取专业且正规的回答，请咨询相关人士</p>
         </div>
       </div>
     </div>
@@ -1206,13 +1206,6 @@ watch(
       border-top: 1px solid #e9ecef;
       flex-shrink: 0;
       width: 100%;
-      
-      .disclaimer-text {
-        font-size: 12px;
-        color: #9ca3af;
-        text-align: center;
-        padding: 8px;
-      }
       background: white;
     }
 

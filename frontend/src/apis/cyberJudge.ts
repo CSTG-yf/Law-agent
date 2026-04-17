@@ -9,6 +9,97 @@ export interface analyzepayload {
   max_history?: number
 }
 
+export interface CyberJudgeStreamHandlers {
+  onMetadata?: (data: any) => void
+  onProgress?: (data: any) => void
+  onFactsSummary?: (data: any) => void
+  onToken?: (data: any) => void
+  onComplete?: (data: any) => void
+  onTitle?: (data: any) => void
+  onError?: (data: any) => void
+  onDone?: () => void
+}
+
+function resolveApiUrl(path: string) {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+  if (!baseURL) {
+    return path
+  }
+  return `${baseURL.replace(/\/$/, '')}${path}`
+}
+
+async function consumeSSEStream(response: Response, handlers: CyberJudgeStreamHandlers) {
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  if (!response.body) {
+    throw new Error('响应流为空')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  const handleEvent = (rawEvent: string) => {
+    const lines = rawEvent.split('\n')
+    let eventName = 'message'
+    const dataLines: string[] = []
+
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trim())
+      }
+    }
+
+    const dataText = dataLines.join('\n')
+    const parsed = dataText ? JSON.parse(dataText) : {}
+
+    if (eventName === 'metadata') {
+      handlers.onMetadata?.(parsed)
+    } else if (eventName === 'progress') {
+      handlers.onProgress?.(parsed)
+    } else if (eventName === 'facts_summary') {
+      handlers.onFactsSummary?.(parsed)
+    } else if (eventName === 'token') {
+      handlers.onToken?.(parsed)
+    } else if (eventName === 'complete') {
+      handlers.onComplete?.(parsed)
+    } else if (eventName === 'title') {
+      handlers.onTitle?.(parsed)
+    } else if (eventName === 'error') {
+      handlers.onError?.(parsed)
+    } else if (eventName === 'done') {
+      handlers.onDone?.()
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+
+    let boundaryIndex = buffer.indexOf('\n\n')
+    while (boundaryIndex !== -1) {
+      const rawEvent = buffer.slice(0, boundaryIndex).trim()
+      buffer = buffer.slice(boundaryIndex + 2)
+      if (rawEvent) {
+        handleEvent(rawEvent)
+      }
+      boundaryIndex = buffer.indexOf('\n\n')
+    }
+
+    if (done) {
+      const trailingEvent = buffer.trim()
+      if (trailingEvent) {
+        handleEvent(trailingEvent)
+      }
+      break
+    }
+  }
+}
+
 // 获得对话列表
 export function getSessionListAPI(user_id: string) {
   return request({
@@ -36,14 +127,22 @@ export function getSessionAPI(session_id:string) {
   })
 }
 
-//发送消息进行分析
-export const sendMessage = (paylad:analyzepayload) => {
-  return request({
-    url: `/api/v1/cyber-judge/analyze`,
-    method: 'post',
-    data: paylad,
-    responseType: 'stream'
+// 发送消息进行流式分析
+export async function sendMessageStream(
+  payload: analyzepayload,
+  handlers: CyberJudgeStreamHandlers
+) {
+  const token = localStorage.getItem('token')
+  const response = await fetch(resolveApiUrl('/api/v1/cyber-judge/analyze'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify(payload)
   })
+
+  await consumeSSEStream(response, handlers)
 }
 
 //上传文件
@@ -56,5 +155,3 @@ export const uploadFile = async (file: File) => {
     data: formData
   })
 }
-
-

@@ -28,6 +28,20 @@ export interface GraphUploadResponse {
   [key: string]: any
 }
 
+// 知识图谱构建任务状态响应
+export interface GraphTaskStatusResponse {
+  success?: boolean
+  message?: string
+  code?: number
+  file_name?: string
+  document_type?: string
+  nodes_count?: number
+  relationships_count?: number
+  task_id?: string
+  file_hash?: string
+  [key: string]: any
+}
+
 export interface GraphQueryRequest {
   query_type: string
   query: string
@@ -39,18 +53,22 @@ export interface GraphQueryRequest {
 export type GraphQueryResponse = Record<string, any>
 
 export interface GraphVisualizationRequest {
-  node_types?: string
-  relation_types?: string
   node_limit?: number
   depth?: number
+  node_types?: string
+  relation_types?: string
   search_term?: string
+  file_hash?: string
 }
 
 export type GraphVisualizationResponse = Record<string, any>
 
 // 获取知识图谱文档列表
 export function getGraphDocumentsAPI() {
+  console.log('正在获取知识图谱文档列表...')
+
   return request<GraphDocumentsListResponse>({
+    
     url: '/api/v1/graph/documents',
     method: 'GET',
     timeout: 60000
@@ -85,6 +103,15 @@ export function uploadGraphDocumentAPI(formData: FormData) {
       'Content-Type': 'multipart/form-data'
     },
     timeout: 600000
+  })
+}
+
+// 查询知识图谱构建任务状态
+export function getGraphTaskStatusAPI(task_id: string) {
+  return request<GraphTaskStatusResponse>({
+    url: `/api/v1/graph/task/${task_id}`,
+    method: 'GET',
+    timeout: 60000
   })
 }
 

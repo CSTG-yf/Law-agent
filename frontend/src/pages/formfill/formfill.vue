@@ -32,10 +32,11 @@ const completion_rate = ref<number>(0) // 当前的完成度
 const blocks = ref<Record<string, any>>({}) // 所有模块的槽位信息
 const templates = ref<formTemplate[]>([]) // 模板列表
 const document_url = ref<string>('') //下载文档的URl
-const success = ref<boolean>(false) //文档是否可以下载 
+const success = ref<boolean>(false) //文档是否可以下载
 const showSessionList = ref(true) // 是否显示会话列表
 const selectedTemplate = ref<string>('') //选中的模板
 const showFormFill = ref<boolean>(false) //是否显示表单填写界面
+const generatedDocumentName = computed(() => decodeURIComponent(document_url.value.split('/').pop() || ''))
 
 // 打开创建对话框
 const openCreateSession = async () => {
@@ -365,20 +366,22 @@ const downloadDocument = async () => {
   }
 
   try {
-    const response = await downloadDocumentAPI(currentSessionId.value)
-    if (response.data.code === 200) {
-      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `generated_document_${currentSessionId.value}.docx`)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-    } else {
-      ElMessage.error(`下载文书失败: ${response.data.status_message}`)
+    const filename = decodeURIComponent(document_url.value.split('/').pop() || '')
+    if (!filename) {
+      ElMessage.error('下载链接无效')
+      return
     }
+
+    const response = await downloadDocumentAPI(filename)
+    const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (error) {
     console.error('下载文书出错:', error)
     ElMessage.error('下载文书失败，请检查网络连接')
@@ -611,12 +614,11 @@ watch(
                   style="display: inline-block; vertical-align: middle; width: calc(100% - 80px);" />
               </div>
               <button class="download-btn" @click="generateForm">生成文书</button>
-              <!-- 在生成成功后显示包含 URL 的下载按钮 -->
-              <button 
-                v-if="success && document_url" 
-                class="download-url-btn" 
+              <button
+                v-if="success && document_url"
+                class="download-url-btn"
                 @click="downloadDocument">
-                {{ document_url }}
+                下载文书{{ generatedDocumentName ? `（${generatedDocumentName}）` : '' }}
               </button>
             </div>
           </div>

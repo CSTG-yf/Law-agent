@@ -253,13 +253,20 @@
         <tr>
           <td class="label-cell">5.劳动仲裁相关情况</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.is_migrant_worker || '点击填写'" field-key="is_migrant_worker" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <editable-field :value="facts.arbitration_details || '点击填写'" field-key="arbitration_details" block-id="facts" @update="handleUpdate" :multiline="true" />
           </td>
         </tr>
         <tr>
-          <td class="label-cell">6.其他相关情况</td>
+          <td class="label-cell">6.其他相关情况（如是否农民工）</td>
           <td class="content-cell tall-cell">
-            <editable-field :value="facts.arbitration_details || '点击填写'" field-key="arbitration_details" block-id="facts" @update="handleUpdate" :multiline="true" />
+            <div class="info-line">
+              <span class="checkbox-item" @click="handleToggle('facts', 'is_migrant_worker', true)">
+                是农民工 [ {{ facts.is_migrant_worker === true ? '√' : ' ' }} ]
+              </span>
+              <span class="checkbox-item" @click="handleToggle('facts', 'is_migrant_worker', false)">
+                不是农民工 [ {{ facts.is_migrant_worker === false ? '√' : ' ' }} ]
+              </span>
+            </div>
           </td>
         </tr>
         <tr>
@@ -360,7 +367,7 @@ const facts = ref({
   contract_signing: '',
   performance_details: '',
   arbitration_details: '',
-  is_migrant_worker: '',
+  is_migrant_worker: undefined,
   legal_basis: '',
   termination_reason: '',
   work_injury: ''
@@ -582,7 +589,7 @@ watch(() => props.blocks, (newBlocks) => {
       contract_signing: getSlotValue(slots, 'contract_signing'), //1.劳动合同签订情况
       performance_details: getSlotValue(slots, 'performance_details'),  //2.劳动合同履行情况
       arbitration_details: getSlotValue(slots, 'arbitration_details'), //5.劳动仲裁相关情况
-      is_migrant_worker: getSlotValue(slots, 'is_migrant_worker') , //6.其他相关情况
+      is_migrant_worker: getActiveValue(slots, 'is_migrant_worker') , //6.其他相关情况
       legal_basis: getSlotValue(slots, 'legal_basis'), //7.诉请依据
       termination_reason: getSlotValue(slots, 'termination_reason'),  //3.解除或终止劳动关系情况
       work_injury: getSlotValue(slots, 'work_injury') //4.工伤情况
