@@ -42,3 +42,4 @@ backend/graph_data
 AGENTS.md
 CLAUDE.md
 .claude/
+.agents/
